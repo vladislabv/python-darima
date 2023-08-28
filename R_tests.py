@@ -16,28 +16,38 @@ from pyspark.sql import SparkSession
 # # Convert the R forecast values back to a pandas Series
 # forecast_values = pd.Series(list(r_forecast_values.rx2('mean')), index=test_data.index)
 
+""""""""
+#
+# # Initialize Spark session
+# spark = SparkSession.builder.appName("ARIMAForecasting").getOrCreate()
+# # spark.sparkContext.setLogLevel("INFO")
+#
+# # Load data into Spark DataFrame
+# data = spark.read.csv("data/CT_test.csv", header=True, inferSchema=True)
+#
+# # Convert data["demand"] column to Pandas Series
+# demand_series = data.select(col("demand")).toPandas()["demand"]
+#
+# # Convert data["time"] column to Pandas Series
+# time_series = data.select(col("time").cast("string")).toPandas()["time"]
+#
+# train_data = convert_to_r_time_series(demand_series, time_series, frequency=12
+#                                       )
+#
+#
+# print(data)
 
+""""""""
 
+from pyspark import SparkContext
 from pyspark.sql import SparkSession
 
 # Initialize Spark session
-spark = SparkSession.builder.appName("ARIMAForecasting").getOrCreate()
-# spark.sparkContext.setLogLevel("INFO")
+spark = SparkSession.builder.appName("RDDSimulation").master("spark://spark-master:7077").getOrCreate()
+sc = spark.sparkContext
 
-# Load data into Spark DataFrame
-data = spark.read.csv("data/CT_test.csv", header=True, inferSchema=True)
-
-# Convert data["demand"] column to Pandas Series
-demand_series = data.select(col("demand")).toPandas()["demand"]
-
-# Convert data["time"] column to Pandas Series
-time_series = data.select(col("time").cast("string")).toPandas()["time"]
-
-train_data = convert_to_r_time_series(demand_series, time_series, frequency=12
-                                      )
-
-
-print(data)
+# Load data into RDD
+data_rdd = sc.textFile("data/CT_test.csv")
 
 # # Define the forecasting function
 # def perform_forecast(chunk):
