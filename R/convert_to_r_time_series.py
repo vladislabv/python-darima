@@ -2,6 +2,7 @@ import rpy2.robjects as robjects
 import pandas as pd
 
 def convert_to_r_time_series(data: pd.Series,
+                             data_time: pd.Series,
                              frequency: int = 12,
                              is_datetime: bool = True,
                              format: str = "%Y-%m-%d %H:%M:%S") -> robjects.r["ts"]:
@@ -18,11 +19,11 @@ def convert_to_r_time_series(data: pd.Series,
     This need to be passed into auto.arima()
     """
     # Convert the pandas Series to an R FloatVector
-    converted_object = robjects.FloatVector(data.values.tolist())
+    converted_object = robjects.FloatVector(data.tolist())
 
     # Convert the pandas Series index to R Date format
     if is_datetime:
-        r_date_vector = robjects.StrVector(data.index.tolist())
+        r_date_vector = robjects.StrVector(data_time.tolist())
         frequence_index = robjects.r['as.POSIXct'](r_date_vector, format=format)
 
     else:

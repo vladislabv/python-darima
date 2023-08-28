@@ -1,6 +1,7 @@
 import pandas as pd
 from R.convert_to_r_time_series import convert_to_r_time_series
 from rpy2 import robjects
+from pyspark.sql.functions import col
 from pyspark.sql import SparkSession
 
 #
@@ -25,6 +26,16 @@ spark = SparkSession.builder.appName("ARIMAForecasting").getOrCreate()
 
 # Load data into Spark DataFrame
 data = spark.read.csv("data/CT_test.csv", header=True, inferSchema=True)
+
+# Convert data["demand"] column to Pandas Series
+demand_series = data.select(col("demand")).toPandas()["demand"]
+
+# Convert data["time"] column to Pandas Series
+time_series = data.select(col("time").cast("string")).toPandas()["time"]
+
+train_data = convert_to_r_time_series(demand_series, time_series, frequency=12
+                                      )
+
 
 print(data)
 
