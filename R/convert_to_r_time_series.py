@@ -58,6 +58,6 @@ def convert_to_r_time_series(data: pd.Series,
 #                         ])
 #
 # # Convert DataFrame to R time series
-# frequency = 24  # Assuming monthly data
-# r_time_series = convert_to_r_time_series(data, frequency, is_datetime=True)
+# frequency = 12  # Assuming monthly data
+# r_time_series = convert_to_r_time_series(data.values,data.index, frequency, is_datetime=True)
 # print(r_time_series)
