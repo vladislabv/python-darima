@@ -1,13 +1,14 @@
 import rpy2.robjects as robjects
 import pandas as pd
 
-def convert_to_r_time_series(data: pd.Series,
-                             data_time: pd.Series,
+def convert_to_r_time_series(data: list,
+                             data_time: list,
                              frequency: int = 12,
                              is_datetime: bool = True,
                              format: str = "%Y-%m-%d %H:%M:%S") -> robjects.r["ts"]:
     """
-    data: pd.Series
+    data: pd.Series -> Values / f(x)
+    data_time: pd.Series -> Time-Values / x
     frequency: int -> 4: Quarterly, 12 Monthly, 24 Hourly, 60 Minutely, 3600 Secondly
     is_date: Boolean
     format: String
@@ -19,16 +20,16 @@ def convert_to_r_time_series(data: pd.Series,
     This need to be passed into auto.arima()
     """
     # Convert the pandas Series to an R FloatVector
-    converted_object = robjects.FloatVector(data.tolist())
+    converted_object = robjects.FloatVector(data)
 
     # Convert the pandas Series index to R Date format
     if is_datetime:
-        r_date_vector = robjects.StrVector(data_time.tolist())
+        r_date_vector = robjects.StrVector(data_time)
         frequence_index = robjects.r['as.POSIXct'](r_date_vector, format=format)
 
     else:
         print("INFORMATION: data.index should be a datetime-format")
-        frequence_index = robjects.IntVector(data.index.tolist())
+        frequence_index = robjects.IntVector(data_time)
 
     # Create a time series object with the converted data and time index
     ts_data = robjects.r["ts"](converted_object, start=min(frequence_index), frequency=frequency)
