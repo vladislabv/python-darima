@@ -23,5 +23,3 @@ forecast_arima <- function(arima_model, test_data){
     return (forecast_values)
 
     }
-
-

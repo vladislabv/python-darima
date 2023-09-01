@@ -14,8 +14,7 @@ def forecast_arima(ts):
     r_auto_arima = robjects.r["auto_arima"]
     r_forecast_arima = robjects.r["forecast_arima"]
     arima_model = r_auto_arima(ts)
-    forecasted_values = r_forecast_arima(arima_model, ts)
-    return forecasted_values
+    return r_forecast_arima(arima_model, ts)
 
 data = pd.read_csv("data/CT_test.csv")
 
@@ -29,8 +28,6 @@ values = pd.read_csv("forecasted_values.csv")
 forecasted = values["Point.Forecast"]
 
 
-
-
-
-
-
+plt.scatter(time_values[0:100], demand_values[0:100], color="green")
+plt.scatter(time_values[0:100], forecasted[0:100], color="red")
+plt.show()

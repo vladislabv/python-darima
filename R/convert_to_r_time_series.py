@@ -37,7 +37,7 @@ def convert_to_r_time_series(data: list,
 
     print(f"INFORMATION: Is a TimeSeries: {is_ts}")
 
-    return ts_data
+    return converted_object
 
 
 # # Example DataFrame
