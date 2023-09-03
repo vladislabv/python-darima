@@ -16,7 +16,7 @@ auto_arima <- function(train_data){
 forecast_arima <- function(arima_model, test_data){
     library(forecast)
 
-     # Prognose für die Testdaten
+    # Prognose für die Testdaten
     forecast_values <- forecast(arima_model, h = length(test_data))
 
     write.csv(forecast_values, file = "forecasted_values.csv", row.names = FALSE)

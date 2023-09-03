@@ -9,14 +9,12 @@ findspark.init()
 import pandas as pd
 
 
-
-
 conf = SparkConf().setAppName("DarimaModel")
 # conf.set("spark.pyspark.python", "/venv/Scripts/python")
 # conf.set("spark.pyspark.driver.python", "/venv/Scripts/python")
 spark = SparkSession.builder.master("local[1]").config(conf=conf).getOrCreate()
 
-def convert_to_ts(iter):
+def arima_modeling(iter):
     rows = list(iter)
     demand_values = [row["demand"] for row in rows]
     time_values = [str(row["time"]) for row in rows]
@@ -32,12 +30,7 @@ def auto_arima(ts):
     forecasted_values = r_forecast_arima(arima_model, ts)
     return forecasted_values
 
-
-
 data = spark.read.csv("data/CT_test.csv", header=True, inferSchema=True)
 parts = data.repartition(4).rdd
-
-
-
-converted_ts_rdd = parts.mapPartitions(convert_to_ts)
+converted_ts_rdd = parts.mapPartitions(arima_modeling)
 

@@ -16,12 +16,12 @@ def forecast_arima(ts):
     arima_model = r_auto_arima(ts)
     return r_forecast_arima(arima_model, ts)
 
-data = pd.read_csv("data/CT_test.csv")
+data = pd.read_csv("data/CT_train.csv")
 
 demand_values = data["demand"].tolist()
 time_values = data["time"].tolist()
 
-ts = convert_to_r_time_series(demand_values, time_values, frequency=24)
+ts = convert_to_r_time_series(demand_values, time_values, frequency=12)
 forecasted_values = forecast_arima(ts)
 
 values = pd.read_csv("forecasted_values.csv")
