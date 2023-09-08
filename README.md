@@ -1,5 +1,7 @@
 # PySpark Example Project [forked](https://github.com/AlexIoannides/pyspark-example-project)
 
+`<SPARK_HOME>/bin/spark-submit --master local --py-files packages.zip --files configs/etl_config.json jobs/darima.py`
+
 This document is designed to be read in parallel with the code in the `pyspark-template-project` repository. Together, these constitute what we consider to be a 'best practices' approach to writing ETL jobs using Apache Spark and its Python ('PySpark') APIs. This project addresses the following topics:
 
 - how to structure ETL code in such a way that it can be easily tested and debugged;
