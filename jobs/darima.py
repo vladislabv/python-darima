@@ -1,5 +1,5 @@
 """
-etl_job.py
+darima.py
 ~~~~~~~~~~
 
 This Python module contains an example Apache Spark ETL job definition
@@ -35,9 +35,12 @@ Zeppelin notebook).
 
 from pyspark.sql import Row
 from pyspark.sql.functions import col, concat_ws, lit
+from rpy2 import robjects
 
 from dependencies.spark import start_spark
-
+from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples
+import time
+import pprint
 
 def main():
     """Main ETL script definition.
@@ -46,25 +49,32 @@ def main():
     """
     # start Spark application and get Spark session, logger and config
     spark, log, config = start_spark(
-        app_name='my_etl_job',
+        app_name='spark.py',
         files=['configs/etl_config.json'])
 
     # log that main ETL job is starting
-    log.warn('etl_job is up-and-running')
+    log.warn('Darima job is up-and-running')
 
-    # execute ETL pipeline
+    # execute ETL (Darima) pipeline with Map and Reduce steps
     data = extract_data(spark)
-    data_transformed = transform_data(data, config['steps_per_floor'])
-    load_data(data_transformed)
+    data_transformed = mapreduce_transform_data(
+        data, 
+        num_partitions=config['num_partitions'],
+        frequency=config['data_time_freq']
+    ).collect()
+    print(data_transformed)
+    
+    #load_data(data_transformed)
 
     # log the success and terminate Spark application
-    log.warn('test_etl_job is finished')
+    log.warn('Darima is finished')
+    time.sleep(1000)
     spark.stop()
     return None
 
 
 def extract_data(spark):
-    """Load data from Parquet file format.
+    """Load data from CSV file format.
 
     :param spark: Spark session object.
     :return: Spark DataFrame.
@@ -72,12 +82,13 @@ def extract_data(spark):
     df = (
         spark
         .read
-        .parquet('tests/test_data/employees'))
+        .csv("data/CT_test.csv", header=True, inferSchema=True)
+    )
 
     return df
 
 
-def transform_data(df, steps_per_floor_):
+def mapreduce_transform_data(df, num_partitions, frequency):
     """Transform original dataset.
 
     :param df: Input DataFrame.
@@ -85,17 +96,36 @@ def transform_data(df, steps_per_floor_):
         Street.
     :return: Transformed DataFrame.
     """
-    df_transformed = (
+    parts = (
         df
-        .select(
-            col('id'),
-            concat_ws(
-                ' ',
-                col('first_name'),
-                col('second_name')).alias('name'),
-               (col('floor') * lit(steps_per_floor_)).alias('steps_to_desk')))
+       .repartition(num_partitions)
+       .rdd
+    )
 
-    return df_transformed
+    converted_ts_rdd = (
+        parts
+        .mapPartitions(lambda x: map_arima(x, frequency))
+        .flatMap(lambda x: x)
+    )
+    # holds initial values for sum and count
+    aTuple = (0,0)
+    # First lambda expression for Within-Partition Reduction Step::
+    # a: is a TUPLE that holds: (runningSum, runningCount).
+    # b: is a SCALAR that holds the next Value
+    calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
+    # Second lambda expression for Cross-Partition Reduction Step::
+    # a: is a TUPLE that holds: (runningSum, runningCount).
+    # b: is a TUPLE that holds: (nextPartitionsSum, nextPartitionsCount).
+    calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
+    mean_coeffs = converted_ts_rdd.aggregateByKey(aTuple, calc_within_parts, calc_cross_parts)
+
+    # Finally, calculate the average for each KEY, and collect results.
+    result = mean_coeffs.mapValues(lambda v: v[0]/v[1])
+    return result
+
+
+def process_data(df):
+    pass
 
 
 def load_data(df):
@@ -109,6 +139,29 @@ def load_data(df):
      .write
      .csv('loaded_data', mode='overwrite', header=True))
     return None
+
+
+# Map functions
+def map_arima(iterator, frequency=1):
+    rows = list(iterator)
+    demand_values = [row["demand"] for row in rows]
+    time_values = [str(row["time"]) for row in rows]
+    ts = convert_to_r_time_series(demand_values, time_values, frequency)
+    trained_model = auto_arima(ts)
+    yield trained_model
+
+
+def auto_arima(ts):
+    # import needed R objects
+    robjects.r.source("R/auto_arima.R")
+    r_auto_arima = robjects.r["auto_arima"]
+    # r_forecast_arima = robjects.r["forecast_arima"]
+    arima_model_coefficients = r_auto_arima(ts)
+    # forecasted_values = r_forecast_arima(arima_model, ts)
+    return rvector_to_list_of_tuples(arima_model_coefficients)
+
+
+# Reduce functions
 
 
 def create_test_data(spark, config):
@@ -140,7 +193,7 @@ def create_test_data(spark, config):
      .parquet('tests/test_data/employees', mode='overwrite'))
 
     # create transformed version of data
-    df_tf = transform_data(df, config['steps_per_floor'])
+    df_tf = mapreduce_transform_data(df, config['steps_per_floor'])
 
     # write transformed version of data to Parquet
     (df_tf

@@ -1,5 +1,4 @@
 import rpy2.robjects as robjects
-import pandas as pd
 
 def convert_to_r_time_series(data: list,
                              data_time: list,
@@ -40,7 +39,20 @@ def convert_to_r_time_series(data: list,
     return converted_object
 
 
+def rvector_to_list_of_tuples(r_vector):
+    # Convert R vector to a list
+    python_list = list(r_vector)
+    
+    # Get names of the R vector
+    names = robjects.r.names(r_vector)
+    
+    # Create a list of tuples with name-value pairs
+    result = [(names[i], python_list[i]) for i in range(len(python_list))]
+    
+    return result
+
 # # Example DataFrame
+# import pandas as pd
 # data = pd.Series([100, 120, 130, 160,
 #                   100, 120, 130, 160,
 #                   100, 120, 130, 160,
