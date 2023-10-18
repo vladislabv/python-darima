@@ -1,6 +1,14 @@
 suppressPackageStartupMessages(require("forecast"))
 suppressPackageStartupMessages(require("polynom"))
 
+# file_path <- "C:/Users/VID/Desktop/GitHub/python-darima/data/CT_test.csv"
+# data <- read.csv(file_path)
+#
+# train_data <- ts(data[["demand"]][0:100], frequency = 24)
+# test_data <- ts(data[["demand"]][2001:2300], frequency = 24)
+# time <- data$time[2001:2300]
+
+
 ar_coefficients <- function(ar = 0, d = 0L, ma = 0, 
                             sar = 0, D = 0L, sma = 0, 
                             mean = 0, drift = 0, 
@@ -66,6 +74,7 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
 
 auto_arima <- function(train_data){
 
+    #
     # train_data should be convert_to_r_time_series()
     # test_data should be convert_to_r_time_series()
     # Is a TimeSeries object
@@ -105,6 +114,8 @@ auto_arima <- function(train_data){
     return(ar.coef)
 }
 
+
+
 forecast_arima <- function(arima_model, test_data){
 
     # Prognose für die Testdaten
@@ -114,3 +125,5 @@ forecast_arima <- function(arima_model, test_data){
     return (forecast_values)
 
 }
+
+results <- auto_arima(train_data)
