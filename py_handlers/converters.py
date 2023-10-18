@@ -1,22 +1,30 @@
+import pandas as pd
 import rpy2.robjects as robjects
 
 def convert_to_r_time_series(data: list,
                              data_time: list,
                              frequency: int = 12,
                              is_datetime: bool = True,
-                             format: str = "%Y-%m-%d %H:%M:%S") -> robjects.r["ts"]:
+                             format: str = "%Y-%m-%d %H:%M:%S"):
+
+
     """
-    data: pd.Series -> Values / f(x)
-    data_time: pd.Series -> Time-Values / x
-    frequency: int -> 4: Quarterly, 12 Monthly, 24 Hourly, 60 Minutely, 3600 Secondly
-    is_date: Boolean
-    format: String
-
-    return: TimeSeries in R
-
     Converts data to a FloatVector in R, creating a time series object.
     data.index need to be frequently (Timestamps / frequence)
     This need to be passed into auto.arima()
+
+    :param data: Values / f(x)
+    :type data: pd.Series
+    :param data_time: Time-Values / x
+    :type data_time: pd.Series
+    :param frequency: 4: Quarterly, 12 Monthly, 24 Hourly, 60 Minutely, 3600 Secondly
+    :type frequency: int
+    :param is_datetime: is_date checking, if its correct
+    :type is_datetime: Boolean
+    :param format: dateformat
+    :type format: str
+    :return: TimeSeries in R
+    :rtype: robjects.r["ts"] <- This type
     """
     # Convert the pandas Series to an R FloatVector
     converted_object = robjects.FloatVector(data)
@@ -41,36 +49,41 @@ def convert_to_r_time_series(data: list,
 
 def rvector_to_list_of_tuples(r_vector):
     # Convert R vector to a list
-    python_list = list(r_vector)
+
+    python_list = robjects.conversion.rpy2py(r_vector)
     
     # Get names of the R vector
     names = robjects.r.names(r_vector)
     
     # Create a list of tuples with name-value pairs
     result = [(names[i], python_list[i]) for i in range(len(python_list))]
-    
+
     return result
 
-# # Example DataFrame
-# import pandas as pd
-# data = pd.Series([100, 120, 130, 160,
-#                   100, 120, 130, 160,
-#                   100, 120, 130, 160,
-#                   100, 120, 130, 160,
-#                   100, 120, 130, 160,
-#                   100, 120, 130, 160,
-#                 160
-#                   ],
-#                  index=["2017-01-01 00:00:00", "2017-01-01 01:00:00", "2017-01-01 02:00:00", "2017-01-01 03:00:00",
-#                         "2017-01-01 04:00:00", "2017-01-01 05:00:00", "2017-01-01 06:00:00", "2017-01-01 07:00:00",
-#                         "2017-01-01 08:00:00", "2017-01-01 09:00:00", "2017-01-01 10:00:00", "2017-01-01 11:00:00",
-#                         "2017-01-01 12:00:00", "2017-01-01 13:00:00", "2017-01-01 14:00:00", "2017-01-01 15:00:00",
-#                         "2017-01-01 16:00:00", "2017-01-01 17:00:00", "2017-01-01 18:00:00", "2017-01-01 19:00:00",
-#                         "2017-01-01 20:00:00", "2017-01-01 21:00:00", "2017-01-01 22:00:00", "2017-01-01 23:00:00",
-#                         "2017-01-02 00:00:00"
-#                         ])
-#
-# # Convert DataFrame to R time series
-# frequency = 12  # Assuming monthly data
-# r_time_series = convert_to_r_time_series(data.values,data.index, frequency, is_datetime=True)
-# print(r_time_series)
+
+def convert_result_to_df(result):
+    """
+    Will convert the results into structured DataFrames.
+
+    from: [(coef_1, value), (coef_2, value2)...]
+    to: Pandas DataFrames
+
+    Will also split into 3 DataFrames.
+
+    - One for the ar coefficients
+    - One for the sigma coefficients
+    - One for the beta coefficients
+
+    :param result: results coefficients
+    :type result: list of tuples
+    :return: df_ar, df_sigma, df_beta
+    :rtype: pd.DataFrame, pd.DataFrame, pd.DataFrame
+    """
+    df = pd.DataFrame(result, columns=["coef", "value"])
+    df_ar = df.loc[df["coef"].str.contains("ar")]
+    df_ar.loc[:, 'coef'] = "ar_" + df_ar['coef'].str.split("ar").str[-1].astype(int).apply(lambda x: f'{x:08d}')
+    df_ar = df_ar.sort_values(by="coef").reset_index(drop=True)
+    df_sigma = df.loc[df["coef"].str.contains("sigma")].reset_index(drop=True)
+    df_beta = df.loc[df["coef"].str.contains("beta")].reset_index(drop=True)
+    return df_ar, df_sigma, df_beta
+

@@ -1,6 +1,14 @@
 suppressPackageStartupMessages(require("forecast"))
 suppressPackageStartupMessages(require("polynom"))
 
+# file_path <- "C:/Users/VID/Desktop/GitHub/python-darima/data/CT_test.csv"
+# data <- read.csv(file_path)
+#
+# train_data <- ts(data[["demand"]][0:100], frequency = 24)
+# test_data <- ts(data[["demand"]][2001:2300], frequency = 24)
+# time <- data$time[2001:2300]
+
+
 ar_coefficients <- function(ar = 0, d = 0L, ma = 0, 
                             sar = 0, D = 0L, sma = 0, 
                             mean = 0, drift = 0, 
@@ -66,15 +74,23 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
 
 auto_arima <- function(train_data){
 
-    # train_data should be convert_to_r_time_series()
-    # test_data should be convert_to_r_time_series()
+    # Via auto.model(train_data) getting needed parameters:
+
+    # d, D, m, mu, dft, phi, theta, Phi, Theta via auto.arima
+    # Via UDF ar_coefficients() it will calculate the coefficients.
+    # ar_coef, beta_coef and sigma_coef
+    # Returning ar.coef as a Vector with named values.
+
+    # train_data should be convert_to_r_time_series() is the original R function ts() converted to python
     # Is a TimeSeries object
-    # Will find via auto.arima best parameters for the arima model
+    # Will find best parameters for the Darima model
 
     tol <- 2000
 
-    # Fit eines ARIMA-Modells
+    # Fitting Arima Model
     arima_model <- auto.arima(train_data)
+
+    # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)
 
     d <- arima_model$arma[6]
@@ -93,17 +109,21 @@ auto_arima <- function(train_data){
     Phi <- arima_model$coef[substring(names(arima_model$coef), 1, 3) == "sar"]
     Theta <- arima_model$coef[substring(names(arima_model$coef), 1, 3) == "sma"]
 
+    # Calculating Coefficients
     ar.coef <- ar_coefficients(
         ar = phi, d = d, ma = theta, 
         sar = Phi, D = D, sma = Theta, 
         mean = mu, drift = dft, 
         m = m, tol = tol
     )
+
     # append sigma to the resulting vector
     ar.coef["sigma2"] <- sigma2
     # should be named vector
     return(ar.coef)
 }
+
+
 
 forecast_arima <- function(arima_model, test_data){
 
@@ -114,3 +134,5 @@ forecast_arima <- function(arima_model, test_data){
     return (forecast_values)
 
 }
+
+# results <- auto_arima(train_data)
