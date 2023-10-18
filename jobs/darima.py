@@ -35,7 +35,7 @@ Zeppelin notebook).
 
 # External Packages
 from rpy2 import robjects
-from dependencies.spark import start_spark
+from py_spark.spark import start_spark
 import time
 import json
 

@@ -55,6 +55,23 @@ def rvector_to_list_of_tuples(r_vector):
 
 
 def convert_result_to_df(result):
+    """
+    Will convert the results into structured DataFrames.
+
+    from: [(coef_1, value), (coef_2, value2)...]
+    to: Pandas DataFrames
+
+    Will also split into 3 DataFrames.
+
+    - One for the ar coefficients
+    - One for the sigma coefficients
+    - One for the beta coefficients
+
+    :param result: results coefficients
+    :type result: list of tuples
+    :return: df_ar, df_sigma, df_beta
+    :rtype: pd.DataFrame, pd.DataFrame, pd.DataFrame
+    """
     df = pd.DataFrame(result, columns=["coef", "value"])
     df_ar = df.loc[df["coef"].str.contains("ar")]
     df_ar.loc[:, 'coef'] = "ar_" + df_ar['coef'].str.split("ar").str[-1].astype(int).apply(lambda x: f'{x:08d}')
