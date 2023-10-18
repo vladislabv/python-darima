@@ -41,6 +41,7 @@ import json
 
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
+from jobs.forecast import forecast_darima
 
 
 class Darima:
@@ -96,6 +97,8 @@ class Darima:
         data_transformed = self.mapreduce_transform_data(data).collect()
         df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
         print(df_ar, df_sigma, df_beta)
+
+
 
         # load_data(data_transformed)
 
