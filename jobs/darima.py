@@ -98,8 +98,6 @@ class Darima:
         df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
         print(df_ar, df_sigma, df_beta)
 
-
-
         # load_data(data_transformed)
 
         # log the success and terminate Spark application
@@ -157,22 +155,6 @@ class Darima:
         result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
         return result
 
-    def process_data(self, df):
-        pass
-
-    def load_data(self, df):
-        """Collect data locally and write to CSV.
-
-        :param df: DataFrame to print.
-        :return: None
-        """
-        (df
-         .coalesce(1)
-         .write
-         .csv('loaded_data', mode='overwrite', header=True))
-        return None
-
-    # Map functions
     def map_arima(self, iterator):
         """
         Will go through a partition (iterator)  convert it into an R-TimeSeries and yield the coefficients.
