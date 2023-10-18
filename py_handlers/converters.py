@@ -5,19 +5,26 @@ def convert_to_r_time_series(data: list,
                              data_time: list,
                              frequency: int = 12,
                              is_datetime: bool = True,
-                             format: str = "%Y-%m-%d %H:%M:%S") -> robjects.r["ts"]:
+                             format: str = "%Y-%m-%d %H:%M:%S"):
+
+
     """
-    data: pd.Series -> Values / f(x)
-    data_time: pd.Series -> Time-Values / x
-    frequency: int -> 4: Quarterly, 12 Monthly, 24 Hourly, 60 Minutely, 3600 Secondly
-    is_date: Boolean
-    format: String
-
-    return: TimeSeries in R
-
     Converts data to a FloatVector in R, creating a time series object.
     data.index need to be frequently (Timestamps / frequence)
     This need to be passed into auto.arima()
+
+    :param data: Values / f(x)
+    :type data: pd.Series
+    :param data_time: Time-Values / x
+    :type data_time: pd.Series
+    :param frequency: 4: Quarterly, 12 Monthly, 24 Hourly, 60 Minutely, 3600 Secondly
+    :type frequency: int
+    :param is_datetime: is_date checking, if its correct
+    :type is_datetime: Boolean
+    :param format: dateformat
+    :type format: str
+    :return: TimeSeries in R
+    :rtype: robjects.r["ts"] <- This type
     """
     # Convert the pandas Series to an R FloatVector
     converted_object = robjects.FloatVector(data)

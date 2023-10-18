@@ -42,15 +42,43 @@ import json
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
 
-class Darima:
 
-    def __init__(self):
+class Darima:
+    """
+    Darima is the Meta Class for modelling.
+
+    """
+
+    def __init__(self, datapath: str = "../data/CT_test.csv",
+                 column_name_value: str = "demand", column_name_time: str = "time"):
+        """
+        Initializing the datainput, columnnames and datalocation.
+
+        :param datapath: path to the data should be .csv format
+        :type datapath: str
+        :param column_name_value: The name of the Values column
+        :type column_name_value: str
+        :param column_name_time: The name of the time column
+        :type column_name_time: str
+        """
+
         with open("../configs/darima_config.json", 'r') as config_file:
             self.config_darima = json.load(config_file)
-
+        self.datapath = datapath
+        self.num_of_partitions = self.config_darima['num_partitions']
+        self.frequency = self.config_darima['data_time_freq']
+        self.column_name_value = column_name_value
+        self.column_name_time = column_name_time
 
     def darima(self):
-        """Main ETL script definition.
+        """
+        Creating a spark Session named DarimaModel.
+
+        Calling values from darima_config.json.
+
+        Main darima method. Calling all needed methods to get the coefficients.
+
+        Map-Reduce step is done here.
 
         :return: None
         """
@@ -65,16 +93,11 @@ class Darima:
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
         data = self.extract_data(spark)
-        data_transformed = self.mapreduce_transform_data(
-            data,
-            num_partitions=self.config_darima['num_partitions'],
-            frequency=self.config_darima['data_time_freq']
-        ).collect()
-        data_transformed = convert_result_to_df(data_transformed)
-        print(data_transformed)
+        data_transformed = self.mapreduce_transform_data(data).collect()
+        df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
+        print(df_ar, df_sigma, df_beta)
 
-
-        #load_data(data_transformed)
+        # load_data(data_transformed)
 
         # log the success and terminate Spark application
         log.warn('Darima is finished')
@@ -82,9 +105,9 @@ class Darima:
         spark.stop()
         return None
 
-
     def extract_data(self, spark):
-        """Load data from CSV file format.
+        """
+        Load data from CSV file format.
 
         :param spark: Spark session object.
         :return: Spark DataFrame.
@@ -92,33 +115,31 @@ class Darima:
         df = (
             spark
             .read
-            .csv("../data/CT_test.csv", header=True, inferSchema=True)
+            .csv(self.datapath, header=True, inferSchema=True)
         )
 
         return df
 
-
-    def mapreduce_transform_data(self, df, num_partitions, frequency):
-        """Transform original dataset.
+    def mapreduce_transform_data(self, df):
+        """
+        Transform original dataset.
 
         :param df: Input DataFrame.
-        :param steps_per_floor_: The number of steps per-floor at 43 Tanner
-            Street.
         :return: Transformed DataFrame.
         """
         parts = (
             df
-           .repartition(num_partitions)
-           .rdd
+            .repartition(self.num_of_partitions)
+            .rdd
         )
 
         converted_ts_rdd = (
             parts
-            .mapPartitions(lambda x: self.map_arima(x, frequency))
+            .mapPartitions(lambda x: self.map_arima(x))
             .flatMap(lambda x: x)
         )
         # holds initial values for sum and count
-        aTuple = (0,0)
+        aTuple = (0, 0)
         # First lambda expression for Within-Partition Reduction Step::
         # a: is a TUPLE that holds: (runningSum, runningCount).
         # b: is a SCALAR that holds the next Value
@@ -130,13 +151,11 @@ class Darima:
         mean_coeffs = converted_ts_rdd.aggregateByKey(aTuple, calc_within_parts, calc_cross_parts)
 
         # Finally, calculate the average for each KEY, and collect results.
-        result = mean_coeffs.mapValues(lambda v: v[0]/v[1])
+        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
         return result
-
 
     def process_data(self, df):
         pass
-
 
     def load_data(self, df):
         """Collect data locally and write to CSV.
@@ -150,31 +169,45 @@ class Darima:
          .csv('loaded_data', mode='overwrite', header=True))
         return None
 
-
     # Map functions
-    def map_arima(self, iterator, frequency=24):
+    def map_arima(self, iterator):
+        """
+        Will go through a partition (iterator)  convert it into an R-TimeSeries and yield the coefficients.
+
+        :param iterator: A partion of a spark RDD
+        :type iterator: spark RDD format
+        :param frequency: See documentation of convert_to_r_time_series (4, 12, 24, 60, 3600)
+        :type frequency: int
+        :return: Will return a list of tuples with all coefficients
+        :rtype: list(tuple())
+        """
         rows = list(iterator)
         demand_values = [row["demand"] for row in rows]
         time_values = [str(row["time"]) for row in rows]
-        ts = convert_to_r_time_series(demand_values, time_values, frequency)
+        ts = convert_to_r_time_series(demand_values, time_values, self.frequency)
         result = self.auto_arima(ts)
         yield result
 
-
-
     def auto_arima(self, ts):
         """
-        Creating via auto_arima
+        Calling the R-Package within this project.
 
-        :param ts:
-        :type ts:
-        :return:
-        :rtype:
+        Working with R-Objects.
+
+        Is calling the function auto_arima within the R-Package.
+
+        Converting values into a valid Python object.
+
+        :param ts: TimeSeries
+        :type ts: Should be R-TimeSeries
+        :return: Will return List of tuples with named coefficients
+        :rtype: list(tuple())
         """
         robjects.r.source("../R/auto_arima.R")
         r_auto_arima = robjects.r["auto_arima"]
         arima_model_coefficients = r_auto_arima(ts)
         return rvector_to_list_of_tuples(arima_model_coefficients)
+
 
 # entry point for PySpark ETL application
 if __name__ == '__main__':
