@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark import SparkConf, SparkContext
-from R.convert_to_r_time_series import convert_to_r_time_series
+from py_handlers.converters import convert_to_r_time_series
 import findspark
 from rpy2 import robjects
 from pyspark.sql.functions import col
@@ -23,7 +23,7 @@ def arima_modeling(iter):
     yield forecasted_values
 
 def auto_arima(ts):
-    robjects.r.source("R/auto_arima.R")
+    robjects.r.source("../R/auto_arima.R")
     r_auto_arima = robjects.r["auto_arima"]
     r_forecast_arima = robjects.r["forecast_arima"]
     arima_model = r_auto_arima(ts)

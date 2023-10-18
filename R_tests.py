@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark import SparkConf, SparkContext
-from R.convert_to_r_time_series import convert_to_r_time_series
+from py_handlers.converters import convert_to_r_time_series
 import findspark
 from rpy2 import robjects
 from pyspark.sql.functions import col

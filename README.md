@@ -1,3 +1,12 @@
+Requirements:
+- R installed on your Environment
+- install.packages("polynom")
+- install.packages("forecast")
+- R Version 4.2.3 (tested with)
+- Python Version 3.11 (tested with)
+
+
+
 # DARIMA (FHSWF Project)
 
 Command to run the project:
