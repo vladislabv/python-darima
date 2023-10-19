@@ -72,7 +72,7 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
     return(coef)
 }
 
-auto_arima <- function(train_data){
+auto_arima <- function(train_data, apply_dlsa){
 
     # Via auto.model(train_data) getting needed parameters:
 
@@ -117,8 +117,18 @@ auto_arima <- function(train_data){
         m = m, tol = tol
     )
 
-    # append sigma to the resulting vector
-    ar.coef["sigma2"] <- sigma2
+    if (apply_dlsa) {
+        # Calculate Sig_inv and Sig_invMcoef
+        #--------------------------------------
+        sigma_normalized <- n/sigma2
+        ar.coef <- ar.coef * sigma_normalized
+        ar.coef["sigma2"] <- sigma_normalized
+        rm(sigma_normalized)
+    } else {
+        # append sigma to the resulting vector
+        ar.coef["sigma2"] <- sigma2
+    }
+
     # should be named vector
     return(ar.coef)
 }
