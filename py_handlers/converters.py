@@ -83,7 +83,10 @@ def convert_result_to_df(result):
     df_ar = df.loc[df["coef"].str.contains("ar")]
     df_ar.loc[:, 'coef'] = "ar_" + df_ar['coef'].str.split("ar").str[-1].astype(int).apply(lambda x: f'{x:08d}')
     df_ar = df_ar.sort_values(by="coef").reset_index(drop=True)
+    # combine sigma and betas coefficients
     df_sigma = df.loc[df["coef"].str.contains("sigma")].reset_index(drop=True)
     df_beta = df.loc[df["coef"].str.contains("beta")].reset_index(drop=True)
-    return df_ar, df_sigma, df_beta
+    # combine all dataframes
+    result = pd.concat([df_ar, df_sigma, df_beta], axis=0).reset_index(drop=True)
 
+    return result
