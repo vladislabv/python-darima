@@ -86,5 +86,7 @@ def convert_result_to_df(result):
     # combine sigma and betas coefficients
     df_sigma = df.loc[df["coef"].str.contains("sigma")].reset_index(drop=True)
     df_beta = df.loc[df["coef"].str.contains("beta")].reset_index(drop=True)
-    return df_ar, df_sigma, df_beta
+    # combine all dataframes
+    result = pd.concat([df_ar, df_sigma, df_beta], axis=0).reset_index(drop=True)
 
+    return result

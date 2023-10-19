@@ -164,12 +164,12 @@ class Darima:
 
             # Generate diag according Sig_inv_sum_value
             #--------------------------------------
-            Sig_inv_sum_inv = 1/Sig_inv_sum_value * np.identity(p) # p-by-p
+            # Sig_inv_sum_inv = 1/Sig_inv_sum_value * np.identity(p) # p-by-p
 
             # Get Theta_tilde and Sig_tilde
             #--------------------------------------
-            Theta_tilde = Sig_inv_sum_inv.dot(Sig_invMcoef_sum) # p-by-1
-            Sig_tilde = Sig_inv_sum_inv*sample_size # p-by-p
+            # Theta_tilde = Sig_inv_sum_inv.dot(Sig_invMcoef_sum) # p-by-1
+            # Sig_tilde = Sig_inv_sum_inv*sample_size # p-by-p
         else:
             # holds initial values for sum and count
             initial_value = (0, 0)
@@ -260,15 +260,13 @@ class Darima:
 
         return result
     
-    def forecast_darima(self, Theta, sigma2, x, period, h=1, level=(80, 95), fan=False, lambda_=None, biasadj=False):
+    def forecast_darima(self, Theta, sigma2, x, period, h=1, level=(80, 95)):
         # Check and prepare data
         x = x.asfreq(freq=period)
         pred = self.predict_ar(Theta, sigma2, x, n_ahead=h)
 
-        if fan:
-            level = list(range(51, 100, 3))
-        else:
-            level = [level] if isinstance(level, int) else level
+        # Form levels if not as iterable given
+        level = [level] if isinstance(level, int) else level
 
         lower = np.empty((h, len(level)))
         upper = np.empty((h, len(level)))

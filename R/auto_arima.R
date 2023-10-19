@@ -120,7 +120,7 @@ auto_arima <- function(train_data, apply_dlsa){
     if (apply_dlsa) {
         # Calculate Sig_inv and Sig_invMcoef
         #--------------------------------------
-        sigma_normalized <- n/sigma2
+        sigma_normalized <- length(train_data)/sigma2
         ar.coef <- ar.coef * sigma_normalized
         ar.coef["sigma2"] <- sigma_normalized
         rm(sigma_normalized)
