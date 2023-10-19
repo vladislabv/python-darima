@@ -1,4 +1,5 @@
 import math
+import numpy as np
 
 def ppf(x):
     a = -9
@@ -12,3 +13,15 @@ def ppf(x):
         else:
             a = c
     return c
+
+# Helper function for inverse Box-Cox transformation
+def inv_box_cox(y: np.ndarray, lambda_, biasadj=False):
+    if lambda_ == 0:
+        return np.exp(y)
+    elif lambda_ == 1:
+        return y
+    else:
+        if biasadj:
+            return (y * lambda_ + 1) ** (1 / lambda_)
+        else:
+            return (y ** lambda_ - 1) / lambda_
