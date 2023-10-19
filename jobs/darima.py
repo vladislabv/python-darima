@@ -43,7 +43,6 @@ import json
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
 from jobs.forecast import forecast_darima
 
-
 class Darima:
     """
     Darima is the Meta Class for modelling.
@@ -84,29 +83,22 @@ class Darima:
         :return: None
         """
 
-        # start Spark application and get Spark session, logger and config
         spark, log, config = start_spark(
             app_name='DarimaModel',
             files=[])
-
-        # log that main ETL job is starting
         log.warn('Darima job is up-and-running')
 
-        # execute ETL (Darima) pipeline with Map and Reduce steps
-        data = self.extract_data(spark)
-        data_transformed = self.mapreduce_transform_data(data).collect()
+        data = self.load_data_from_csv(spark)
+        data_transformed = self.map_reduce(data).collect()
         df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
         print(df_ar, df_sigma, df_beta)
 
-        # load_data(data_transformed)
-
-        # log the success and terminate Spark application
         log.warn('Darima is finished')
         time.sleep(1000)
         spark.stop()
         return None
 
-    def extract_data(self, spark):
+    def load_data_from_csv(self, spark):
         """
         Load data from CSV file format.
 
@@ -121,7 +113,7 @@ class Darima:
 
         return df
 
-    def mapreduce_transform_data(self, df):
+    def map_reduce(self, df):
         """
         Transform original dataset.
 
@@ -136,24 +128,19 @@ class Darima:
 
         converted_ts_rdd = (
             parts
-            .mapPartitions(lambda x: self.map_arima(x))
+            .mapPartitions(lambda x: MapDarima().map_arima(x))
             .flatMap(lambda x: x)
         )
-        # holds initial values for sum and count
-        aTuple = (0, 0)
-        # First lambda expression for Within-Partition Reduction Step::
-        # a: is a TUPLE that holds: (runningSum, runningCount).
-        # b: is a SCALAR that holds the next Value
-        calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
-        # Second lambda expression for Cross-Partition Reduction Step::
-        # a: is a TUPLE that holds: (runningSum, runningCount).
-        # b: is a TUPLE that holds: (nextPartitionsSum, nextPartitionsCount).
-        calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
-        mean_coeffs = converted_ts_rdd.aggregateByKey(aTuple, calc_within_parts, calc_cross_parts)
 
-        # Finally, calculate the average for each KEY, and collect results.
-        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
-        return result
+        mean_result = ReduceDarima().reduce_mean(converted_ts_rdd)
+
+        return mean_result
+
+
+class MapDarima(Darima):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def map_arima(self, iterator):
         """
@@ -192,6 +179,34 @@ class Darima:
         r_auto_arima = robjects.r["auto_arima"]
         arima_model_coefficients = r_auto_arima(ts)
         return rvector_to_list_of_tuples(arima_model_coefficients)
+
+
+class ReduceDarima(Darima):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def reduce_mean(self, converted_ts_rdd):
+        # holds initial values for sum and count
+        aTuple = (0, 0)
+        # First lambda expression for Within-Partition Reduction Step::
+        # a: is a TUPLE that holds: (runningSum, runningCount).
+        # b: is a SCALAR that holds the next Value
+        calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
+        # Second lambda expression for Cross-Partition Reduction Step::
+        # a: is a TUPLE that holds: (runningSum, runningCount).
+        # b: is a TUPLE that holds: (nextPartitionsSum, nextPartitionsCount).
+        calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
+        mean_coeffs = converted_ts_rdd.aggregateByKey(aTuple, calc_within_parts, calc_cross_parts)
+
+        # Finally, calculate the average for each KEY, and collect results.
+        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
+        return result
+
+
+
+
+
 
 
 # entry point for PySpark ETL application
