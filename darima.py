@@ -70,6 +70,7 @@ class Darima:
             self.config_darima = json.load(config_file)
         self.num_of_partitions = self.config_darima['num_partitions']
         self.frequency = self.config_darima['data_time_freq']
+        self.method = self.config_darima["method"]
         self.column_name_value = column_name_value
         self.column_name_time = column_name_time
 
@@ -96,18 +97,24 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
-        train_data = spark.createDataFrame(self.extract_data(spark, self.config_darima['train_datapath']).tail(10000))
-        test_data = self.extract_data(spark, self.config_darima['test_datapath'])
+        train_data = self.load_data_from_csv(spark, self.config_darima['train_datapath'])
+        test_data = self.load_data_from_csv(spark, self.config_darima['test_datapath'])
 
-        data_transformed = self.mapreduce_transform_data(train_data).collect()
+        data_transformed = self.map_reduce(train_data).collect()
         df_coeffs = convert_result_to_df(data_transformed)
+        
+        apply_dlsa = self.config_darima['method'] == 'dlsa'
+        if apply_dlsa:
+            temp_sigma = df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0]
+            df_coeffs["value"] = df_coeffs["value"] * (1 / temp_sigma)
+            df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * train_data.count()
 
         # before doing preds convert pyspark df to pandas df
-
         test_pd_ts = convert_spark_2_pandas_ts(test_data, self.column_name_time)
         train_pd_ts = convert_spark_2_pandas_ts(train_data, self.column_name_time)
 
-        preds = self.forecast_darima(
+        forec_obj = Forecast()
+        preds = forec_obj.forecast_darima(
             Theta=np.array(df_coeffs[df_coeffs['coef'] != 'sigma2']["value"].values),
             sigma2=df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0],
             x=train_pd_ts,
@@ -116,7 +123,7 @@ class Darima:
             level=[80, 95],
         )
 
-        eval_metrics = self.model_evaluation(
+        eval_metrics = forec_obj.model_evaluation(
             log=log,
             train=train_pd_ts,
             test=test_pd_ts,
@@ -130,14 +137,11 @@ class Darima:
         score = eval_metrics.mean(axis=0)
         print(score)
         # log the success and terminate Spark application
-
-        # log the success and terminate Spark application
         log.warn('Darima is finished')
-        time.sleep(1000)
         spark.stop()
         return None
 
-    def extract_data(self, spark, filename):
+    def load_data_from_csv(self, spark, filename):
         """
         Load data from CSV file format.
 
@@ -152,13 +156,15 @@ class Darima:
 
         return df
 
-    def mapreduce_transform_data(self, df, dlsa: bool = False):
+    def map_reduce(self, df):
         """
         Transform original dataset.
 
         :param df: Input DataFrame.
         :return: Transformed DataFrame.
         """
+        len_df = df.count()
+
         parts = (
             df
             .repartition(self.num_of_partitions)
@@ -167,49 +173,22 @@ class Darima:
 
         converted_ts_rdd = (
             parts
-            .mapPartitions(lambda x: self.map_arima(x))
+            .mapPartitions(lambda x: MapDarima().map_arima(x))
             .flatMap(lambda x: x)
         )
 
-        if dlsa:
-            # Define the initial value for each key
-            initial_value = 0
+        apply_dlsa = self.config_darima['method'] == 'dlsa'
+        if apply_dlsa:
+            result = ReduceDarima().reduce_dlsa(converted_ts_rdd, len_df)
 
-            # First lambda expression for Within-Partition Reduction Step::
-            # a: is the current sum for the key.
-            # b: is a SCALAR that holds the next Value
-            calc_within_parts = lambda a, b: a + b
-
-            # Second lambda expression for Cross-Partition Reduction Step::
-            # a: is the running sum for the key.
-            # b: is the next partition's sum.
-            calc_cross_parts = lambda a, b: a + b
-
-            sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
-            # Collect the results
-            result = pd.DataFrame(sums_over_keys.collect(), columns=["coef", "value"])
-
-            # Generate diag according Sig_inv_sum_value
-            # --------------------------------------
-            # Sig_inv_sum_inv = 1/Sig_inv_sum_value * np.identity(p) # p-by-p
-
-            # Get Theta_tilde and Sig_tilde
-            # --------------------------------------
-            # Theta_tilde = Sig_inv_sum_inv.dot(Sig_invMcoef_sum) # p-by-1
-            # Sig_tilde = Sig_inv_sum_inv*sample_size # p-by-p
-        else:
-            # holds initial values for sum and count
-            initial_value = (0, 0)
-
-            calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
-
-            calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
-            mean_coeffs = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
-
-            # Finally, calculate the average for each KEY, and collect results.
-            result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
-
+        result = ReduceDarima().reduce_mean(converted_ts_rdd)
         return result
+    
+
+class MapDarima(Darima):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def map_arima(self, iterator):
         """
@@ -246,7 +225,7 @@ class Darima:
         """
         robjects.r.source("R/auto_arima.R")
         r_auto_arima = robjects.r["auto_arima"]
-        apply_dlsa = self.config_darima.get('dlsa', False)
+        apply_dlsa = self.config_darima['method'] == 'dlsa'
         arima_model_coefficients = r_auto_arima(ts, apply_dlsa)
         return rvector_to_list_of_tuples(arima_model_coefficients)
 
@@ -304,6 +283,75 @@ class Darima:
 
         return result
 
+
+class ReduceDarima(Darima):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def calculate_partition_sums(iterator):
+        # Initialize sums for this partition
+        partition_sum_value = 0.0
+        partition_sum_mcoef = np.zeros((p, 1))
+
+        for row in iterator:
+            # Assuming the row is a Row object with 'key' and 'value' fields
+            key = row.key
+            value = row.value
+
+            partition_sum_value += value
+            # Assuming that key contains the partition index (0 to p-1)
+            partition_sum_mcoef[key] += value
+
+        return (partition_sum_value, partition_sum_mcoef)
+
+    def reduce_dlsa(self, converted_ts_rdd, len_df):
+        # Define the initial value for each key
+        initial_value = 0
+
+        # First lambda expression for Within-Partition Reduction Step::
+        # a: is the current sum for the key.
+        # b: is a SCALAR that holds the next Value
+        calc_within_parts = lambda a, b: a + b
+
+        # Second lambda expression for Cross-Partition Reduction Step::
+        # a: is the running sum for the key.
+        # b: is the next partition's sum.
+        calc_cross_parts = lambda a, b: a + b
+
+        sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        # Collect the results
+
+        # sums_over_key_df = convert_result_to_df(sums_over_keys.collect())
+
+        # sigma_sum = sums_over_key_df.loc[sums_over_key_df["coef"] == "sigma2"].reset_index(drop=True)["value"][0]
+        # coefs = sums_over_key_df.loc[sums_over_key_df["coef"] != "sigma2"].reset_index(drop=True)
+
+        # coefs["value"] = coefs["value"] * (1 / sigma_sum)
+        # sigma = (1 / sigma_sum) * len_df
+        # result = {"coefs": coefs, "sigma": sigma}
+        return sums_over_keys
+
+    def reduce_mean(self, converted_ts_rdd):
+        # holds initial values for sum and count
+        initial_value = (0, 0)
+
+        calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
+
+        calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
+        mean_coeffs = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+
+        # Finally, calculate the average for each KEY, and collect results.
+        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
+
+        return result
+
+    
+class Forecast(Darima):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
     def forecast_darima(self, Theta, sigma2, x, period='s', h=1, level=[80, 95]):
         # Check and prepare data
         # x = x.asfreq(freq=period)
@@ -354,7 +402,7 @@ class Darima:
             print("INFORMATION: Forecasts were DUMPED")
 
         return result
-
+    
     def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
 
         # Check and prepare levels
