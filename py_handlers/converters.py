@@ -1,6 +1,9 @@
 import pandas as pd
 import rpy2.robjects as robjects
 
+from pyspark.sql.functions import col
+from pyspark.sql.types import TimestampType
+
 def convert_to_r_time_series(data: list,
                              data_time: list,
                              frequency: int = 12,
@@ -90,3 +93,20 @@ def convert_result_to_df(result):
     result = pd.concat([df_ar, df_sigma, df_beta], axis=0).reset_index(drop=True)
 
     return result
+
+
+def convert_spark_2_pandas_ts(spark_df, column_name_time):
+    """
+    Converts Spark DataFrame to Pandas DataFrame
+    :return: Pandas DataFrame
+    :rtype: pd.DataFrame
+    """
+    spark_df = spark_df.withColumn(column_name_time, col(column_name_time).cast(TimestampType()))
+    rows = spark_df.collect()
+
+    # Convert the list of Row objects to a Pandas DataFrame
+    pandas_df = pd.DataFrame(rows, columns=spark_df.columns)
+    pandas_df.set_index(column_name_time, inplace=True)
+    pandas_ts = pandas_df.squeeze()
+    
+    return pandas_ts

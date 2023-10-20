@@ -43,8 +43,9 @@ from rpy2 import robjects
 from py_spark.spark import start_spark
 
 # Internal Packages
-from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
-from py_handlers.utils import ppf
+from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df, \
+    convert_spark_2_pandas_ts
+from py_handlers.utils import ppf, inv_box_cox, ar_to_ma
 
 
 class Darima:
@@ -53,8 +54,7 @@ class Darima:
 
     """
 
-    def __init__(self, datapath: str = "data/CT_test.csv",
-                 column_name_value: str = "demand", column_name_time: str = "time"):
+    def __init__(self, column_name_value: str = "demand", column_name_time: str = "time"):
         """
         Initializing the datainput, columnnames and datalocation.
 
@@ -68,7 +68,6 @@ class Darima:
 
         with open("configs/darima_config.json", 'r') as config_file:
             self.config_darima = json.load(config_file)
-        self.datapath = datapath
         self.num_of_partitions = self.config_darima['num_partitions']
         self.frequency = self.config_darima['data_time_freq']
         self.column_name_value = column_name_value
@@ -97,12 +96,40 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
-        data = self.extract_data(spark)
-        data_transformed = self.mapreduce_transform_data(data).collect()
-        df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
-        print(df_ar, df_sigma, df_beta)
+        train_data = spark.createDataFrame(self.extract_data(spark, self.config_darima['train_datapath']).tail(10000))
+        test_data = self.extract_data(spark, self.config_darima['test_datapath'])
 
-        # load_data(data_transformed)
+        data_transformed = self.mapreduce_transform_data(train_data).collect()
+        df_coeffs = convert_result_to_df(data_transformed)
+
+        # before doing preds convert pyspark df to pandas df
+
+        test_pd_ts = convert_spark_2_pandas_ts(test_data, self.column_name_time)
+        train_pd_ts = convert_spark_2_pandas_ts(train_data, self.column_name_time)
+
+        preds = self.forecast_darima(
+            Theta=np.array(df_coeffs[df_coeffs['coef'] != 'sigma2']["value"].values),
+            sigma2=df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0],
+            x=train_pd_ts,
+            period=self.frequency,
+            h=len(test_pd_ts),
+            level=[80, 95],
+        )
+
+        eval_metrics = self.model_evaluation(
+            log=log,
+            train=train_pd_ts,
+            test=test_pd_ts,
+            period=self.frequency,
+            pred=preds["mean"],
+            lower=preds["lower"],
+            upper=preds["upper"],
+            level=[80, 95],
+        )
+        print(eval_metrics)
+        score = eval_metrics.mean(axis=0)
+        print(score)
+        # log the success and terminate Spark application
 
         # log the success and terminate Spark application
         log.warn('Darima is finished')
@@ -110,7 +137,7 @@ class Darima:
         spark.stop()
         return None
 
-    def extract_data(self, spark):
+    def extract_data(self, spark, filename):
         """
         Load data from CSV file format.
 
@@ -120,7 +147,7 @@ class Darima:
         df = (
             spark
             .read
-            .csv(self.datapath, header=True, inferSchema=True)
+            .csv(filename, header=True, inferSchema=True)
         )
 
         return df
@@ -143,7 +170,7 @@ class Darima:
             .mapPartitions(lambda x: self.map_arima(x))
             .flatMap(lambda x: x)
         )
-       
+
         if dlsa:
             # Define the initial value for each key
             initial_value = 0
@@ -163,11 +190,11 @@ class Darima:
             result = pd.DataFrame(sums_over_keys.collect(), columns=["coef", "value"])
 
             # Generate diag according Sig_inv_sum_value
-            #--------------------------------------
+            # --------------------------------------
             # Sig_inv_sum_inv = 1/Sig_inv_sum_value * np.identity(p) # p-by-p
 
             # Get Theta_tilde and Sig_tilde
-            #--------------------------------------
+            # --------------------------------------
             # Theta_tilde = Sig_inv_sum_inv.dot(Sig_invMcoef_sum) # p-by-1
             # Sig_tilde = Sig_inv_sum_inv*sample_size # p-by-p
         else:
@@ -181,7 +208,7 @@ class Darima:
 
             # Finally, calculate the average for each KEY, and collect results.
             result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
-        
+
         return result
 
     def map_arima(self, iterator):
@@ -229,44 +256,70 @@ class Darima:
             raise ValueError("'n_ahead' must be at least 1")
         if x is None:
             raise ValueError("Argument 'x' is missing")
-        if not isinstance(x, np.ndarray):
-            raise ValueError("'x' must be a NumPy array")
+        if not isinstance(x, pd.Series):
+            raise ValueError("'x' must be a pandas time series")
 
         h = n_ahead
         n = len(x)
-        st = x.index[1]  # Assuming x is a pandas Series with DateTimeIndex
+        tspx = x.index
+        dt = (tspx[1] - tspx[0]).total_seconds()
         coef = Theta
         p = len(coef) - 2  # AR order
-        X = np.column_stack([np.ones(n), np.arange(1, n + 1)] + [x.shift(i) for i in range(1, p + 1)])
 
-        # Fitted values
-        fits = np.dot(X, coef).flatten()
+        X = np.column_stack([np.ones(n), np.arange(1, n + 1)] + [x.shift(i).to_numpy() for i in range(1, p + 1)])
+
+        # Fitted value
+        fits = np.dot(X, coef).ravel()
+        fits = pd.Series(fits, index=tspx)
+
+        # Residuals
         res = x - fits
 
         # Forecasts
         y = np.append(x, np.zeros(h))
         for i in range(h):
             y[n + i] = np.sum(coef * np.concatenate(([1, n + i], y[n + i - np.arange(1, p + 1)])))
-        pred = y[n + np.arange(h)]
+
+        pred = y[n:]
+        pred = pd.Series(pred, index=[x.index[-1] + pd.Timedelta((i + 1) * dt, unit='s') for i in range(h)])
+
+        result = {
+            "fitted": fits,
+            "residuals": res,
+            "pred": pred
+        }
 
         # Standard errors
         if se_fit:
-            psi = np.polymul(np.array([1]), coef[-p:])
-            vars = np.cumsum(np.polymul(np.array([1]), psi ** 2))
-            se = np.sqrt(sigma2 * vars[-h:])
-            result = {"fitted": fits, "residuals": res, "pred": pred, "se": se}
-        else:
-            result = {"fitted": fits, "residuals": res, "pred": pred}
+            # psi = np.polymul(np.array([1]), coef[-p:])
+            # vars = np.cumsum(np.polymul(np.array([1]), psi ** 2))
+            # se = np.sqrt(sigma2 * vars[-h:])
+            psi = ar_to_ma(coef[-p:], h - 1) ** 2
+            vars = np.cumsum(np.concatenate((np.array([1]), psi)))
+            se = np.sqrt(sigma2 * vars)[:h]
+            print(se.shape)
+            se = pd.Series(se, index=[tspx[-1] + pd.Timedelta((i + 1) * dt, unit='s') for i in range(h)])
+            print(se)
+            result["se"] = se
 
         return result
-    
-    def forecast_darima(self, Theta, sigma2, x, period, h=1, level=(80, 95)):
+
+    def forecast_darima(self, Theta, sigma2, x, period='s', h=1, level=[80, 95]):
         # Check and prepare data
-        x = x.asfreq(freq=period)
+        # x = x.asfreq(freq=period)
         pred = self.predict_ar(Theta, sigma2, x, n_ahead=h)
 
-        # Form levels if not as iterable given
-        level = [level] if isinstance(level, int) else level
+        # Check and prepare levels
+        level = np.array(level) if isinstance(level, list) else level
+        level = np.array([level]) if isinstance(level, int) or isinstance(level, float) else level
+
+        if not isinstance(level, np.ndarray):
+            raise ValueError("Confidence limit must be a number or a list of numbers")
+
+        if (min(level) > 0 and max(level) < 1):
+            level < - 100 * level
+        elif (min(level) < 0 or max(level) > 99.99):
+            raise ValueError("Confidence limit out of range")
 
         lower = np.empty((h, len(level)))
         upper = np.empty((h, len(level)))
@@ -276,6 +329,16 @@ class Darima:
             upper[:, i] = pred["pred"] + qq * pred["se"]
 
         # Convert the results
+        result_to_dump = {
+            "level": level.tolist(),
+            "mean": pred["pred"].values.tolist(),
+            "se": pred["se"].tolist(),
+            "lower": lower.tolist(),
+            "upper": upper.tolist(),
+            "fitted": pred["fitted"].values.tolist(),
+            "residuals": pred["residuals"].values.tolist(),
+        }
+
         result = {
             "level": level,
             "mean": pred["pred"],
@@ -286,7 +349,56 @@ class Darima:
             "residuals": pred["residuals"],
         }
 
+        with open("forecast.json", "w") as outfile:
+            json.dump(result_to_dump, outfile)
+            print("INFORMATION: Forecasts were DUMPED")
+
         return result
+
+    def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
+
+        # Check and prepare levels
+        level = np.array(level) if isinstance(level, list) else level
+        level = np.array([level]) if isinstance(level, int) or isinstance(level, float) else level
+
+        if not isinstance(level, np.ndarray):
+            raise ValueError("Confidence limit must be a number or a list of numbers")
+
+
+        time_index = test.index.values
+        # Calculate MASE
+        scaling = np.mean(np.abs(np.diff(np.array(train), period)))
+        mase = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / scaling
+        mase.name = "mase"
+
+        # Calculate sMAPE
+        smape = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / (
+                    (np.abs(test.reset_index(drop=True)) + np.abs(pred.reset_index(drop=True))) / 2)
+        smape.name = "smape"
+
+        # Calculate MSIS
+        alpha = (100 - level) / 100
+
+        msis = pd.DataFrame()
+        msis_names = ["msis_" + str(l) for l in level]
+        for lower_col, upper_col, alpha, new_name in zip(lower.T, upper.T, alpha.T, msis_names):
+            msis_col = (
+                               (upper_col - lower_col) +
+                               (2 / alpha) * (lower_col - test) * (lower_col > test) +
+                               (2 / alpha) * (test - upper_col) * (upper_col < test)
+                       ) / scaling
+            msis_col.name = new_name
+            msis = pd.concat([msis, msis_col], axis=1)
+
+        # Out
+        # --------------------------------------
+        out_df = pd.concat([mase, smape, msis.reset_index(drop=True)], axis=1)
+        out_df.index = time_index
+
+        if any(out_df.isna()):
+            log.warn("NAs appear in the final output")
+
+        return out_df
 
 
 # entry point for PySpark ETL application
