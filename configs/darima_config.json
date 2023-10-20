@@ -3,5 +3,6 @@
   "num_partitions": 5,
   "data_time_freq": 24,
   "train_datapath": "data/NEMASSBOST_train.csv",
-  "test_datapath": "data/NEMASSBOST_test.csv"
+  "test_datapath": "data/NEMASSBOST_test.csv",
+  "method": "mean"
 }
