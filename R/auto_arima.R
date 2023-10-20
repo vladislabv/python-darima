@@ -117,7 +117,8 @@ auto_arima <- function(train_data, apply_dlsa){
         m = m, tol = tol
     )
 
-    if (apply_dlsa) {
+    if (apply_dlsa == "dlsa") {
+        print("calculating dlsa parameters")
         # Calculate Sig_inv and Sig_invMcoef
         #--------------------------------------
         sigma_normalized <- length(train_data)/sigma2
