@@ -142,13 +142,14 @@ class Darima:
             .flatMap(lambda x: x)
         )
 
+
+
         # part_lengths = parts.mapPartitions(lambda x: [len(list(x))])
 
-        match self.method:
-            case "mean":
+        if self.method == "mean":
                 result = ReduceDarima().reduce_mean(converted_ts_rdd)
-            case "dlsa":
-                result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
+        elif self.method == "dlsa":
+            result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
         return result
 
 
