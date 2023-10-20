@@ -364,28 +364,29 @@ class Darima:
         # Calculate MASE
         scaling = np.mean(np.abs(np.diff(np.array(train), period)))
         mase = np.abs(test - pred) / scaling
+        mase.name = "mase"
 
         # Calculate sMAPE
         smape = np.abs(test - pred) / ( (np.abs(test) + np.abs(pred)) / 2 )
+        smape.name = "smape"
 
         # Calculate MSIS
         alpha = (100 - level) / 100
 
         msis = pd.DataFrame()
-        for lower_col, upper_col in zip(lower, upper):
+        msis_names = ["msis_" + str(l) for l in level]
+        for lower_col, upper_col, alpha, new_name in zip(lower.T, upper.T, alpha.T, msis_names):
             msis_col = (
                 (upper_col - lower_col) +
                 (2 / alpha) * (lower_col - test) * (lower_col > test) +
                 (2 / alpha) * (test - upper_col) * (upper_col < test)
             ) / scaling
-            pd.concat([msis, msis_col], axis=1)
-        
-        msis.columns=pd.Index(["msis_" + str(level) for level in level])
+            msis_col.name = new_name
+            msis = pd.concat([msis, msis_col], axis=1)
         
         # Out
         #--------------------------------------
         out_df = pd.concat([mase, smape, msis], axis = 1)
-        out_df.columns = pd.Index(["mase", "smape", "msis"])
 
         if any(out_df.isna()):
             log.warn("NAs appear in the final output")
