@@ -116,7 +116,6 @@ auto_arima <- function(train_data, apply_dlsa){
         mean = mu, drift = dft, 
         m = m, tol = tol
     )
-
     if (apply_dlsa) {
         # Calculate Sig_inv and Sig_invMcoef
         #--------------------------------------
@@ -124,6 +123,8 @@ auto_arima <- function(train_data, apply_dlsa){
         ar.coef <- ar.coef * sigma_normalized
         ar.coef["sigma2"] <- sigma_normalized
         rm(sigma_normalized)
+        print(length(train_data))
+        print(ar.coef["sigma2"])
     } else {
         # append sigma to the resulting vector
         ar.coef["sigma2"] <- sigma2

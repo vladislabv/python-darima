@@ -41,6 +41,9 @@ import pandas as pd
 import numpy as np
 from rpy2 import robjects
 from py_spark.spark import start_spark
+from pyspark.sql import Row
+
+
 
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
@@ -72,6 +75,7 @@ class Darima:
         self.frequency = self.config_darima['data_time_freq']
         self.column_name_value = column_name_value
         self.column_name_time = column_name_time
+        self.method = self.config_darima["method"]
 
     def darima(self):
         """
@@ -95,9 +99,9 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         data = self.load_data_from_csv(spark)
-        data_transformed = self.map_reduce(data).collect()
-        df_ar, df_sigma, df_beta = convert_result_to_df(data_transformed)
-        print(df_ar, df_sigma, df_beta)
+        coefficients = self.map_reduce(data).collect()
+        df_coef = convert_result_to_df(coefficients)
+        print(df_coef)
 
         log.warn('Darima is finished')
         time.sleep(1000)
@@ -119,7 +123,7 @@ class Darima:
 
         return df
 
-    def mapreduce_transform_data(self, df, dlsa: bool = False):
+    def map_reduce(self, df):
         """
         Transform original dataset.
 
@@ -138,9 +142,16 @@ class Darima:
             .flatMap(lambda x: x)
         )
 
-        mean_result = ReduceDarima().reduce_mean(converted_ts_rdd)
+        # part_lengths = parts.mapPartitions(lambda x: [len(list(x))])
 
-        return mean_result
+        match self.method:
+            case "mean":
+                result = ReduceDarima().reduce_mean(converted_ts_rdd)
+            case "dlsa":
+                result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
+        return result
+
+
 
 
 class MapDarima(Darima):
@@ -159,6 +170,7 @@ class MapDarima(Darima):
         :return: Will return a list of tuples with all coefficients
         :rtype: list(tuple())
         """
+        print(iterator)
         rows = list(iterator)
         demand_values = [row["demand"] for row in rows]
         time_values = [str(row["time"]) for row in rows]
@@ -183,8 +195,10 @@ class MapDarima(Darima):
         """
         robjects.r.source("R/auto_arima.R")
         r_auto_arima = robjects.r["auto_arima"]
-        apply_dlsa = self.config_darima.get('dlsa', False)
-        arima_model_coefficients = r_auto_arima(ts, apply_dlsa)
+        apply_dlsa = self.config_darima['method']
+        if apply_dlsa == "dlsa":
+            dlsa = True
+        arima_model_coefficients = r_auto_arima(ts, dlsa)
         return rvector_to_list_of_tuples(arima_model_coefficients)
 
     def predict_ar(self, Theta, sigma2, x, n_ahead=1, se_fit=True):
@@ -251,51 +265,67 @@ class MapDarima(Darima):
 
         return result
 
+class Forecast(Darima):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
 class ReduceDarima(Darima):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def calculate_partition_sums(iterator):
+        # Initialize sums for this partition
+        partition_sum_value = 0.0
+        partition_sum_mcoef = np.zeros((p, 1))
+
+        for row in iterator:
+            # Assuming the row is a Row object with 'key' and 'value' fields
+            key = row.key
+            value = row.value
+
+            partition_sum_value += value
+            # Assuming that key contains the partition index (0 to p-1)
+            partition_sum_mcoef[key] += value
+
+        return (partition_sum_value, partition_sum_mcoef)
+
+    def reduce_dlsa(self, converted_ts_rdd):
+        # Define the initial value for each key
+        initial_value = 0
+
+        # First lambda expression for Within-Partition Reduction Step::
+        # a: is the current sum for the key.
+        # b: is a SCALAR that holds the next Value
+        calc_within_parts = lambda a, b: a + b
+
+        # Second lambda expression for Cross-Partition Reduction Step::
+        # a: is the running sum for the key.
+        # b: is the next partition's sum.
+        calc_cross_parts = lambda a, b: a + b
+
+        sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        # Collect the results
+        result = pd.DataFrame(sums_over_keys.collect(), columns=["coef", "value"])
+        # Extract Sig_inv_sum_value and Sig_invMcoef_sum
+        Sig_inv_sum_value, Sig_invMcoef_sum = sums_over_keys.collect()[0]
+        Sig_inv_sum_value = np.array(Sig_inv_sum_value).reshape(1, 1)
+        Sig_invMcoef_sum = np.array(Sig_invMcoef_sum).reshape(2000, 1)
+
+        return result
+
     def reduce_mean(self, converted_ts_rdd):
-        dlsa = self.config_darima.get('dlsa', False)
-        if bool(dlsa):
-            # Define the initial value for each key
-            initial_value = 0
+        # holds initial values for sum and count
+        initial_value = (0, 0)
 
-            # First lambda expression for Within-Partition Reduction Step::
-            # a: is the current sum for the key.
-            # b: is a SCALAR that holds the next Value
-            calc_within_parts = lambda a, b: a + b
+        calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
 
-            # Second lambda expression for Cross-Partition Reduction Step::
-            # a: is the running sum for the key.
-            # b: is the next partition's sum.
-            calc_cross_parts = lambda a, b: a + b
+        calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
+        mean_coeffs = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
 
-            sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
-            # Collect the results
-            result = pd.DataFrame(sums_over_keys.collect(), columns=["coef", "value"])
-
-            # Generate diag according Sig_inv_sum_value
-            #--------------------------------------
-            # Sig_inv_sum_inv = 1/Sig_inv_sum_value * np.identity(p) # p-by-p
-
-            # Get Theta_tilde and Sig_tilde
-            #--------------------------------------
-            # Theta_tilde = Sig_inv_sum_inv.dot(Sig_invMcoef_sum) # p-by-1
-            # Sig_tilde = Sig_inv_sum_inv*sample_size # p-by-p
-        else:
-            # holds initial values for sum and count
-            initial_value = (0, 0)
-
-            calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
-
-            calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
-            mean_coeffs = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
-
-            # Finally, calculate the average for each KEY, and collect results.
-            result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
+        # Finally, calculate the average for each KEY, and collect results.
+        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
         
         return result
 
