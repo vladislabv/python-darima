@@ -43,11 +43,10 @@ from rpy2 import robjects
 from py_spark.spark import start_spark
 from pyspark.sql import Row
 
-
-
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df
 from py_handlers.utils import ppf
+
 
 class Darima:
     """
@@ -99,9 +98,11 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         data = self.load_data_from_csv(spark)
-        coefficients = self.map_reduce(data).collect()
-        df_coef = convert_result_to_df(coefficients)
-        print(df_coef)
+        if self.method == "mean":
+            coefficients = self.map_reduce(data).collect()
+            df_coef = convert_result_to_df(coefficients)
+        elif self.method == "dlsa":
+            coefficients = self.map_reduce(data)
 
         log.warn('Darima is finished')
         time.sleep(1000)
@@ -130,6 +131,8 @@ class Darima:
         :param df: Input DataFrame.
         :return: Transformed DataFrame.
         """
+        len_df = df.count()
+
         parts = (
             df
             .repartition(self.num_of_partitions)
@@ -142,17 +145,13 @@ class Darima:
             .flatMap(lambda x: x)
         )
 
-
-
         # part_lengths = parts.mapPartitions(lambda x: [len(list(x))])
 
         if self.method == "mean":
-                result = ReduceDarima().reduce_mean(converted_ts_rdd)
+            result = ReduceDarima().reduce_mean(converted_ts_rdd)
         elif self.method == "dlsa":
-            result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
+            result = ReduceDarima().reduce_dlsa(converted_ts_rdd, len_df)
         return result
-
-
 
 
 class MapDarima(Darima):
@@ -237,7 +236,7 @@ class MapDarima(Darima):
             result = {"fitted": fits, "residuals": res, "pred": pred}
 
         return result
-    
+
     def forecast_darima(self, Theta, sigma2, x, period, h=1, level=(80, 95)):
         # Check and prepare data
         x = x.asfreq(freq=period)
@@ -266,6 +265,7 @@ class MapDarima(Darima):
 
         return result
 
+
 class Forecast(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -292,7 +292,7 @@ class ReduceDarima(Darima):
 
         return (partition_sum_value, partition_sum_mcoef)
 
-    def reduce_dlsa(self, converted_ts_rdd):
+    def reduce_dlsa(self, converted_ts_rdd, len_df):
         # Define the initial value for each key
         initial_value = 0
 
@@ -308,12 +308,15 @@ class ReduceDarima(Darima):
 
         sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
         # Collect the results
-        result = pd.DataFrame(sums_over_keys.collect(), columns=["coef", "value"])
-        # Extract Sig_inv_sum_value and Sig_invMcoef_sum
-        Sig_inv_sum_value, Sig_invMcoef_sum = sums_over_keys.collect()[0]
-        Sig_inv_sum_value = np.array(Sig_inv_sum_value).reshape(1, 1)
-        Sig_invMcoef_sum = np.array(Sig_invMcoef_sum).reshape(2000, 1)
 
+        sums_over_key_df = convert_result_to_df(sums_over_keys.collect())
+
+        sigma_sum = sums_over_key_df.loc[sums_over_key_df["coef"] == "sigma2"].reset_index(drop=True)["value"][0]
+        coefs = sums_over_key_df.loc[sums_over_key_df["coef"] != "sigma2"].reset_index(drop=True)
+
+        coefs["value"] = coefs["value"] * (1 / sigma_sum)
+        sigma = (1 / sigma_sum) * len_df
+        result = {"coefs": coefs, "sigma": sigma}
         return result
 
     def reduce_mean(self, converted_ts_rdd):
@@ -327,7 +330,7 @@ class ReduceDarima(Darima):
 
         # Finally, calculate the average for each KEY, and collect results.
         result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
-        
+
         return result
 
 

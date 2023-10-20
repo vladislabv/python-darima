@@ -72,7 +72,13 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
     return(coef)
 }
 
-auto_arima <- function(train_data, apply_dlsa){
+auto_arima <- function(train_data, apply_dlsa, period = 1, tol = 500L,
+                      order = c(0L, 0L, 0L), seasonal = c(0L, 0L, 0L),
+                      max.p = 5, max.q = 5, max.P = 2, max.Q = 2,
+                      max.order = 5, max.d = 2, max.D = 1,
+                      allowmean = TRUE, allowdrift = TRUE, method = NULL,
+                      approximation = (length(train_data) > 150 | period > 12),
+                      stepwise = TRUE, parallel = FALSE, num.cores = 2){
 
     # Via auto.model(train_data) getting needed parameters:
 
@@ -85,10 +91,24 @@ auto_arima <- function(train_data, apply_dlsa){
     # Is a TimeSeries object
     # Will find best parameters for the Darima model
 
+      # sarima model
+    if (sum(order) == 0L & sum(seasonal) == 0L){
+    # no pre-defined order and seasonal order
+        arima_model <- forecast::auto.arima(x=train_data, allowdrift = allowdrift, allowmean = allowmean,
+                                    max.p = max.p, max.q = max.q, max.P = max.P, max.Q = max.Q,
+                                    max.order = max.order, max.d = max.d, max.D = max.D,
+                                    method = method, stepwise = stepwise,
+                                    approximation = approximation,
+                                    parallel = parallel, num.cores = num.cores)
+    } else {
+        arima_model <- forecast::Arima(train_data, order = order, seasonal = seasonal, method = method,
+                               include.mean = allowmean, include.drift = allowdrift)
+    }
+
     tol <- 2000
 
     # Fitting Arima Model
-    arima_model <- auto.arima(train_data)
+    # arima_model <- auto.arima(train_data)
 
     # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)
