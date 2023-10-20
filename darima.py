@@ -44,7 +44,7 @@ from py_spark.spark import start_spark
 
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df, convert_spark_2_pandas_ts
-from py_handlers.utils import ppf
+from py_handlers.utils import ppf, inv_box_cox, ar_to_ma
 
 
 class Darima:
@@ -95,7 +95,7 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
-        train_data = self.extract_data(spark, self.config_darima['train_datapath'])
+        train_data = self.extract_data(spark, self.config_darima['test_datapath'])
         data_transformed = self.mapreduce_transform_data(train_data).collect()
         df_coeffs = convert_result_to_df(data_transformed)
 
@@ -106,6 +106,8 @@ class Darima:
             sigma2 = df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0],
             x = train_pd_ts,
             period=self.frequency,
+            h = len(train_pd_ts),
+            level = [80, 95],
         )
 
         test_data = self.extract_data(spark, self.config_darima['test_datapath'])
@@ -119,7 +121,7 @@ class Darima:
             pred = preds["mean"],
             lower = preds["lower"],
             upper = preds["upper"],
-            level = 95
+            level = [80, 95],
         )
         print(eval_metrics)
         score = eval_metrics.mean(axis=0)
@@ -275,10 +277,9 @@ class Darima:
         for i in range(h):
             y[n + i] = np.sum(coef * np.concatenate(([1, n + i], y[n + i - np.arange(1, p + 1)])))
 
-        pred = y[n + h - 1]
-        # pred = y[n + np.arange(h)]
+        pred = y[n:]
         pred = pd.Series(pred, index=[x.index[-1] + pd.Timedelta((i + 1) * dt, unit='s') for i in range(h)])
-        
+
         result = {
             "fitted": fits,
             "residuals": res,
@@ -287,26 +288,35 @@ class Darima:
 
         # Standard errors
         if se_fit:
-            psi = np.polymul(np.array([1]), coef[-p:])
-            vars = np.cumsum(np.polymul(np.array([1]), psi ** 2))
-            se = np.sqrt(sigma2 * vars[-h:])
-
-            #psi = np.dot(coef[-p:], np.array([1] + [0] * (h - 1)))
-            #vars = np.cumsum(np.array([1] + psi**2))
-            #se = np.sqrt(sigma2 * vars)[:h]
-            #se = pd.Series(se, index=[tspx[-1] + pd.Timedelta((i + 1) * dt, unit='s') for i in range(h)])
-
+            #psi = np.polymul(np.array([1]), coef[-p:])
+            #vars = np.cumsum(np.polymul(np.array([1]), psi ** 2))
+            #se = np.sqrt(sigma2 * vars[-h:])
+            psi = ar_to_ma(coef[-p:], h - 1)**2
+            vars = np.cumsum(np.concatenate( (np.array([1]), psi) ))
+            se = np.sqrt(sigma2 * vars)[:h]
+            print(se.shape)
+            se = pd.Series(se, index=[tspx[-1] + pd.Timedelta((i + 1) * dt, unit='s') for i in range(h)])
+            print(se)
             result["se"] = se
 
         return result
     
-    def forecast_darima(self, Theta, sigma2, x, period='s', h=1, level=95):
+    def forecast_darima(self, Theta, sigma2, x, period='s', h=1, level=[80, 95]):
         # Check and prepare data
         # x = x.asfreq(freq=period)
         pred = self.predict_ar(Theta, sigma2, x, n_ahead=h)
 
-        # Form levels if not as iterable given
-        level = [level] if isinstance(level, int) else level
+        # Check and prepare levels
+        level = np.array(level) if isinstance(level, list) else level
+        level = np.array([level]) if isinstance(level, int) or isinstance(level, float) else level
+
+        if not isinstance(level, np.ndarray):
+            raise ValueError("Confidence limit must be a number or a list of numbers")
+
+        if (min(level) > 0 and max(level) < 1):
+            level <- 100 * level
+        elif (min(level) < 0 or max(level) > 99.99):
+            raise ValueError("Confidence limit out of range")
 
         lower = np.empty((h, len(level)))
         upper = np.empty((h, len(level)))
@@ -317,7 +327,7 @@ class Darima:
 
         # Convert the results
         result_to_dump = {
-            "level": level,
+            "level": level.tolist(),
             "mean": pred["pred"].values.tolist(),
             "se": pred["se"].tolist(),
             "lower": lower.tolist(),
@@ -342,26 +352,35 @@ class Darima:
 
         return result
     
-    def model_evaluation(self, log, train, test, period, pred, lower, upper, level = 95):
+    def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
 
-        # unpack lower and upper if needed
-        lower = lower.flatten()[0] if isinstance(lower, np.ndarray) else lower
-        upper = upper.flatten()[0] if isinstance(upper, np.ndarray) else upper
+        # Check and prepare levels
+        level = np.array(level) if isinstance(level, list) else level
+        level = np.array([level]) if isinstance(level, int) or isinstance(level, float) else level
 
+        if not isinstance(level, np.ndarray):
+            raise ValueError("Confidence limit must be a number or a list of numbers")
+        
         # Calculate MASE
         scaling = np.mean(np.abs(np.diff(np.array(train), period)))
         mase = np.abs(test - pred) / scaling
 
         # Calculate sMAPE
-        smape = (np.abs(test - pred) * 200) / (np.abs(test) + np.abs(pred))
+        smape = np.abs(test - pred) / ( (np.abs(test) + np.abs(pred)) / 2 )
 
         # Calculate MSIS
         alpha = (100 - level) / 100
-        msis = (
-            (upper - lower) + 
-            (2 / alpha) * (lower - test) * (lower > test) + 
-            (2 / alpha) * (test - upper) * (upper < test)
-        ) / scaling
+
+        msis = pd.DataFrame()
+        for lower_col, upper_col in zip(lower, upper):
+            msis_col = (
+                (upper_col - lower_col) +
+                (2 / alpha) * (lower_col - test) * (lower_col > test) +
+                (2 / alpha) * (test - upper_col) * (upper_col < test)
+            ) / scaling
+            pd.concat([msis, msis_col], axis=1)
+        
+        msis.columns=pd.Index(["msis_" + str(level) for level in level])
         
         # Out
         #--------------------------------------

@@ -25,3 +25,16 @@ def inv_box_cox(y: np.ndarray, lambda_, biasadj=False):
             return (y * lambda_ + 1) ** (1 / lambda_)
         else:
             return (y ** lambda_ - 1) / lambda_
+        
+def ar_to_ma(ar_coeffs, ma_length):
+    p = len(ar_coeffs)
+    q = ma_length
+
+    ma_coeffs = np.zeros(q)
+
+    for j in range(q):
+        for k in range(j+1):
+            if k < p:
+                ma_coeffs[j] += ar_coeffs[k] * ma_coeffs[j - k]
+
+    return ma_coeffs
