@@ -1,7 +1,7 @@
 Darima
 ==========================
 
-.. automodule:: jobs.darima
+.. automodule:: darima
    :members:
    :undoc-members:
    :show-inheritance:

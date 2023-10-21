@@ -104,16 +104,15 @@ class Darima:
         df_coeffs = convert_result_to_df(data_transformed)
 
         if self.config_darima['method'] == 'dlsa':
-            temp_sigma = df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0]
-            df_coeffs["value"] = df_coeffs["value"] * (1 / temp_sigma)
+            temp_sigma = (df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0])
+            df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
             df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * train_data.count()
 
         # before doing preds convert pyspark df to pandas df
         test_pd_ts = convert_spark_2_pandas_ts(test_data, self.column_name_time)
         train_pd_ts = convert_spark_2_pandas_ts(train_data, self.column_name_time)
 
-        forec_obj = Forecast()
-        preds = Forecast().forecast_darima(
+        preds = ForecastDarima().forecast_darima(
             Theta=np.array(df_coeffs[df_coeffs['coef'] != 'sigma2']["value"].values),
             sigma2=df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0],
             x=train_pd_ts,
@@ -122,7 +121,8 @@ class Darima:
             level=[80, 95],
         )
 
-        eval_metrics = forec_obj.model_evaluation(
+
+        eval_metrics = EvaluationDarima().model_evaluation(
             log=log,
             train=train_pd_ts,
             test=test_pd_ts,
@@ -184,6 +184,12 @@ class Darima:
     
 
 class MapDarima(Darima):
+    """
+    Is the main class for the Map step. This class inherit Darima class.
+    Mapping every partition and calculating the coefficients. Uses R intergrated functions
+    like auto.arima and ts. Also preparing a partition for calculations and convertering
+    given partition into a timeseries. map_arima is the main-method within this class.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -229,6 +235,11 @@ class MapDarima(Darima):
 
 
 class ReduceDarima(Darima):
+    """
+    Is the main class for the Reduce step. This class inherit Darima class.
+    Got two main-methods, reduce_dlsa (Distributed Least Squares Approximation) and reduce_mean.
+    Will return processed coefficients.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -250,6 +261,16 @@ class ReduceDarima(Darima):
         return (partition_sum_value, partition_sum_mcoef)
 
     def reduce_dlsa(self, converted_ts_rdd):
+        """
+        Calculating for a RDD partition the sum for all key-value pairs.
+        Is created for getting the sum of all the coefficients.
+
+        :param converted_ts_rdd: Should be all the coefficients
+        :type converted_ts_rdd: RDD Format
+        :return: Sum over Keys
+        :rtype: RDD Format
+        """
+
         # Define the initial value for each key
         initial_value = 0
 
@@ -264,16 +285,6 @@ class ReduceDarima(Darima):
         calc_cross_parts = lambda a, b: a + b
 
         sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
-        # Collect the results
-
-        # sums_over_key_df = convert_result_to_df(sums_over_keys.collect())
-
-        # sigma_sum = sums_over_key_df.loc[sums_over_key_df["coef"] == "sigma2"].reset_index(drop=True)["value"][0]
-        # coefs = sums_over_key_df.loc[sums_over_key_df["coef"] != "sigma2"].reset_index(drop=True)
-
-        # coefs["value"] = coefs["value"] * (1 / sigma_sum)
-        # sigma = (1 / sigma_sum) * len_df
-        # result = {"coefs": coefs, "sigma": sigma}
         return sums_over_keys
 
     def reduce_mean(self, converted_ts_rdd):
@@ -291,7 +302,12 @@ class ReduceDarima(Darima):
         return result
 
     
-class Forecast(Darima):
+class ForecastDarima(Darima):
+    """
+    Is the main forecasting class. This class inherit Darima class. Is calculating the predictions of the
+    coefficients of Darima. Is the main class for forecasting.
+    """
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -314,7 +330,7 @@ class Forecast(Darima):
         p = len(coef) - 2  # AR order
 
         X = np.column_stack([np.ones(n), np.arange(1, n + 1)] + [x.shift(i).to_numpy() for i in range(1, p + 1)])
-
+        print(coef)
         # Fitted value
         fits = np.dot(X, coef).ravel()
         fits = pd.Series(fits, index=tspx)
@@ -398,7 +414,14 @@ class Forecast(Darima):
             print("INFORMATION: Forecasts were DUMPED")
 
         return result
-    
+
+class EvaluationDarima(Darima):
+    """
+    Is the main forecasting class. This class inherit Darima class. Is calculating the result
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
 
         # Check and prepare levels
@@ -414,6 +437,12 @@ class Forecast(Darima):
         scaling = np.mean(np.abs(np.diff(np.array(train), period)))
         mase = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / scaling
         mase.name = "mase"
+
+        import matplotlib.pyplot as plt
+        plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
+        plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
+        plt.show()
+
 
         # Calculate sMAPE
         smape = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / (
