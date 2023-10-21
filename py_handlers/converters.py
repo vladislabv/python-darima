@@ -51,8 +51,11 @@ def convert_to_r_time_series(data: list,
 
 
 def rvector_to_list_of_tuples(r_vector):
-    # Convert R vector to a list
-
+    """
+    Converts named R vector to a list of tuples [(coef_1, value), (coef_2, value2)...]
+    :return: Pandas DataFrame
+    :rtype: pd.Series
+    """
     python_list = robjects.conversion.rpy2py(r_vector)
     
     # Get names of the R vector
@@ -69,18 +72,18 @@ def convert_result_to_df(result):
     Will convert the results into structured DataFrames.
 
     from: [(coef_1, value), (coef_2, value2)...]
-    to: Pandas DataFrames
+    to: Pandas DataFrame
 
-    Will also split into 3 DataFrames.
-
-    - One for the ar coefficients
-    - One for the sigma coefficients
-    - One for the beta coefficients
+    Result is a merged dataframe from following parts:
+    
+    - A pd.DataFrame with the ar coefficients;
+    - A pd.DataFrame with the sigma coefficients;
+    - A pd.DataFrame with the beta coefficients.
 
     :param result: results coefficients
     :type result: list of tuples
-    :return: df_ar, df_sigma, df_beta
-    :rtype: pd.DataFrame, pd.DataFrame, pd.DataFrame
+    :return: result
+    :rtype: pd.DataFrame
     """
     df = pd.DataFrame(result, columns=["coef", "value"])
     df_ar = df.loc[df["coef"].str.contains("ar")]
@@ -97,9 +100,9 @@ def convert_result_to_df(result):
 
 def convert_spark_2_pandas_ts(spark_df, column_name_time):
     """
-    Converts Spark DataFrame to Pandas DataFrame
+    Converts Spark DataFrame to Pandas (Time-) Series
     :return: Pandas DataFrame
-    :rtype: pd.DataFrame
+    :rtype: pd.Series
     """
     spark_df = spark_df.withColumn(column_name_time, col(column_name_time).cast(TimestampType()))
     rows = spark_df.collect()
