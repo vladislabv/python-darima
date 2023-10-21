@@ -74,21 +74,10 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
 
 auto_arima <- function(train_data, apply_dlsa){
 
-    # Via auto.model(train_data) getting needed parameters:
-
-    # d, D, m, mu, dft, phi, theta, Phi, Theta via auto.arima
-    # Via UDF ar_coefficients() it will calculate the coefficients.
-    # ar_coef, beta_coef and sigma_coef
-    # Returning ar.coef as a Vector with named values.
-
-    # train_data should be convert_to_r_time_series() is the original R function ts() converted to python
-    # Is a TimeSeries object
-    # Will find best parameters for the Darima model
-
     tol <- 2000
 
     # Fitting Arima Model
-    arima_model <- auto.arima(train_data)
+    arima_model <- auto.arima(train_data, max.p=10, max.q=10, max.P=10, max.Q=10, max.order=20, seasonal=TRUE)
 
     # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)
