@@ -25,10 +25,10 @@ def start_spark(app_name='my_spark_app', master='local[*]', jar_packages=[],
     All other arguments exist solely for testing the script from within
     an interactive Python console.
 
-    This function also looks for a file ending in 'config.json' that
+    This function also looks for a file ending in 'darima_config.json' that
     can be sent with the Spark job. If it is found, it is opened,
-    the contents parsed (assuming it contains valid JSON for the ETL job
-    configuration) into a dict of ETL job configuration parameters,
+    the contents parsed (assuming it contains valid JSON for the model
+    configuration) into a dict of model configuration parameters,
     which are returned as the last element in the tuple returned by
     this function. If the file cannot be found then the return tuple
     only contains the Spark session and Spark logger objects and None
