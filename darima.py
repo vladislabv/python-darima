@@ -1,36 +1,6 @@
 """
 darima.py
 ~~~~~~~~~~
-
-This Python module contains an example Apache Spark ETL job definition
-that implements best practices for production ETL jobs. It can be
-submitted to a Spark cluster (or locally) using the 'spark-submit'
-command found in the '/bin' directory of all Spark distributions
-(necessary for running any Spark job, locally or otherwise). For
-example, this example script can be executed as follows,
-
-    $SPARK_HOME/bin/spark-submit \
-    --master spark://localhost:7077 \
-    --py-files packages.zip \
-    --files configs/etl_config.json \
-    jobs/etl_job.py
-
-where packages.zip contains Python modules required by ETL job (in
-this example it contains a class to provide access to Spark's logger),
-which need to be made available to each executor process on every node
-in the cluster; etl_config.json is a text file sent to the cluster,
-containing a JSON object with all of the configuration parameters
-required by the ETL job; and, etl_job.py contains the Spark application
-to be executed by a driver process on the Spark master node.
-
-For more details on submitting Spark applications, please see here:
-http://spark.apache.org/docs/latest/submitting-applications.html
-
-Our chosen approach for structuring jobs is to separate the individual
-'units' of ETL - the Extract, Transform and Load parts - into dedicated
-functions, such that the key Transform steps can be covered by tests
-and jobs or called from within another environment (e.g. a Jupyter or
-Zeppelin notebook).
 """
 
 # External Packages
@@ -123,8 +93,7 @@ class Darima:
             h=len(test_pd_ts),
             level=[80, 95],
         )
-
-
+        
         eval_metrics = EvaluationDarima().model_evaluation(
             log=log,
             train=train_pd_ts,
@@ -147,6 +116,7 @@ class Darima:
         Load data from CSV file format.
 
         :param spark: Spark session object.
+        :param filename: CSV filename
         :return: Spark DataFrame.
         """
         df = (
@@ -275,6 +245,14 @@ class ReduceDarima(Darima):
         return sums_over_keys
 
     def reduce_mean(self, converted_ts_rdd):
+        """
+        Calculating mean of the ARIMA coefficients across all partitions
+
+        :param converted_ts_rdd: Should be all the coefficients
+        :type converted_ts_rdd: RDD Format
+        :return: Result (reduced) list of tuples [(coef_1, value), (coef_2, value), ...]
+        :rtype: RDD Format
+        """
         # holds initial values for sum and count
         initial_value = (0, 0)
 
@@ -295,12 +273,22 @@ class ForecastDarima(Darima):
     coefficients of Darima. Is the main class for forecasting.
     """
 
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-
     def predict_ar(self, Theta, sigma2, x, n_ahead=1, se_fit=True):
+        """
+        Predicts the values by applying autoregressive model.
+        Optionally calculated standard errors for the made predictions over the given horizon.
+
+        :param Theta: Array of the ARIMA-coefficients (except sigma)
+        :param sigma2: Sigma value
+        :param x: Train data to make the predictions on
+        :param n_ahead Forecasting horizon
+        :param se_fit: Whether standard errors should be included in the output
+        :return: Dictionary including residuals, fitted values and predictions
+        :rtype: dict
+        """
         # Check arguments
         if n_ahead < 1:
             raise ValueError("'n_ahead' must be at least 1")
@@ -341,9 +329,6 @@ class ForecastDarima(Darima):
 
         # Standard errors
         if se_fit:
-            # psi = np.polymul(np.array([1]), coef[-p:])
-            # vars = np.cumsum(np.polymul(np.array([1]), psi ** 2))
-            # se = np.sqrt(sigma2 * vars[-h:])
             psi = ar_to_ma(coef[-p:], h - 1) ** 2
             vars = np.cumsum(np.concatenate((np.array([1]), psi)))
             se = np.sqrt(sigma2 * vars)[:h]
@@ -352,7 +337,20 @@ class ForecastDarima(Darima):
 
         return result
     
-    def forecast_darima(self, Theta, sigma2, x, period='s', h=1, level=[80, 95]):
+    def forecast_darima(self, Theta, sigma2, x, period=24, h=1, level=[80, 95]):
+        """
+        Forecasts values over the given horizon in the future. The predictions are formed as pandas (Time-) series.
+        The results of forecast are additionaly dumped in form of the json document for further analysis.
+
+        :param Theta: Array of the ARIMA-coefficients (except sigma)
+        :param sigma2: Sigma value
+        :param x: Train data to make the predictions on
+        :param period: Frequency of observations
+        :param h: Forecasting horizon
+        :param level: Confidention levels used to calculated confidential intervals for each predicted value
+        :return: Dictionary with fitted, predictions, lower/upper bounds, and residuals
+        :rtype: dict
+        """
         # Check and prepare data
         pred = self.predict_ar(Theta=Theta, sigma2=sigma2, x=x, n_ahead=h)
 
@@ -406,18 +404,33 @@ class EvaluationDarima(Darima):
     """
     Is the main forecasting class. This class inherit Darima class. Is calculating the result
     """
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
+        """
+        Calculates the evaluation metrics between the predictions and actiual test data.
+        Use additionally test data to calculate scaling coefficient for evaluation metrics.
 
+        :param log: PySpark Logger
+        :param train: Train data, used to train ARIMA-Models
+        :param test: Test data
+        :param period: Frequency of observations
+        :param pred: Predicted values
+        :param lower: Lower bounds for predicted values
+        :param upper: Upper bounds for predicted values
+        :param level: Values used for alpha calculation, therefore MSIS value one per level
+        :type level: List, np.ndarray, int or float
+        :return: Out DF with named evaluation metrics
+        :rtype: pd.DataFrame
+        """
         # Check and prepare levels
         level = np.array(level) if isinstance(level, list) else level
         level = np.array([level]) if isinstance(level, int) or isinstance(level, float) else level
 
         if not isinstance(level, np.ndarray):
             raise ValueError("Confidence limit must be a number or a list of numbers")
-
 
         time_index = test.index.values
         # Calculate MASE
@@ -429,7 +442,6 @@ class EvaluationDarima(Darima):
         plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
         plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
         plt.show()
-
 
         # Calculate sMAPE
         smape = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / (
