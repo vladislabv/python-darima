@@ -1,8 +1,7 @@
 {
-  "steps_per_floor": 21,
   "num_partitions": 4,
   "data_time_freq": 24,
   "train_datapath": "data/NEMASSBOST_train.csv",
   "test_datapath": "data/NEMASSBOST_test.csv",
-  "method": "dlsa"
+  "method": "mean"
 }

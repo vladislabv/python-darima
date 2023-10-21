@@ -108,6 +108,9 @@ class Darima:
             df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
             df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * train_data.count()
 
+        elif self.config_darima["method"] == "mean":
+            df_coeffs["value"] = df_coeffs["value"] / test_data.count()
+
         # before doing preds convert pyspark df to pandas df
         test_pd_ts = convert_spark_2_pandas_ts(test_data, self.column_name_time)
         train_pd_ts = convert_spark_2_pandas_ts(train_data, self.column_name_time)
@@ -243,22 +246,6 @@ class ReduceDarima(Darima):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    def calculate_partition_sums(self, iterator):
-        # Initialize sums for this partition
-        partition_sum_value = 0.0
-        partition_sum_mcoef = np.zeros((p, 1))
-
-        for row in iterator:
-            # Assuming the row is a Row object with 'key' and 'value' fields
-            key = row.key
-            value = row.value
-
-            partition_sum_value += value
-            # Assuming that key contains the partition index (0 to p-1)
-            partition_sum_mcoef[key] += value
-
-        return (partition_sum_value, partition_sum_mcoef)
 
     def reduce_dlsa(self, converted_ts_rdd):
         """
