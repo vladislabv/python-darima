@@ -78,24 +78,137 @@ library(ggplot2)
 
 
 # Introduction
+In the context of time series, a common use case involves predicting values for upcoming time periods. This can be achieved by utilizing so-called ARIMA models. Regarding ultra-long time series these models have some disadvantages which can be summarized in: high hardware requirements, long computing time and bad performance. To address these problems Wang et al. XXX developed a distributed forecasting framework for ultra-long time series, called DARIMA (distributed ARIMA).
 
-# ARIMA and Distributed Computing
+The purpose of the present work is to summarize its main ideas and innovations (1XXX), explain its theoretical background, apply it in an actual software architecture, implement it with help of R, Python and Apache Spark (2XXX) and run it in a distributed manner with help of Google Cloud Platform’s (GCP) Dataproc (3XXX). The resulting models will be used to make forecasts for the same electricity demand data set as Wang et al.XXX used.
 
-# Map Reduce
+The forecasts obtained and performance reached this way (4XXX) will be evaluated by comparing measurements like the mean absolute scaled error (MASE) and the mean scaled interval score (MSIS) for results that had been calculated in a traditional ARIMA-approach and the distributed way (5XXX).
 
-## Reduce: Standard method
+It’s important to mention that there won’t be a distinct theoretical chapter. Every theoretical concept and its relations to others will be covered directly before its code implementation is presented.
 
-## Reduce: unconditional arithmetic mean
 
-# Implementation with Google Cloud
+# DARIMA: Main ideas and technical foundation
+This chapter summarizes the main ideas and innovations of the DARIMA-model, introduces its main steps and the underlying technical foundation of distributed computing.
 
-# Forecast 
+Traditional forecasting approaches assume that the data generating process (DGP) of a time series is the same over time. Though Wang et al. XXX claim that this is false for an ultra-long time. Instead they assume that the DGP is stable for shorter time-windows, but variant for ultra-long times. Outgoing from this assumption they suggest performing forecasting for ultra-long time series in a distributed manner. Since distributed platforms have only poor support for this case they construct a distributed time series forecasting framework which is based on a MapReduce-architecture.
 
-## Point Forecast
+This architecture utilizes distributed systems which consist of a group of interacting computing nodes: During the Map-step a master node assigns tasks to several worker nodes which will compute the required calculations. When these are done, their results need to be reduced in a predefined manner to an aggregated result for the overall calculation. This is the Reduce-step. Since the amount of nodes can be increased for more complex calculations this architecture provides scalability without the need of improving the hardware of a single node. All in all the advantages are up to 100 times faster computations and enabling computations that a single machine couldn’t even handle.
 
-## Prediction Intervals
+Based on this technical foundation Wang et al.XXX build up the DARIMA-model: In the first Map-step the ultra-long time series has to be divided into smaller subseries with shorter time periods. While this splitting is enabled by the assumption of the invariant DGP it’s crucial to ensure the local time dependency for each subserie because each has serial dependence. The second Map-step consists of calculating an ARIMA-Model for each subserie independently and converting it into a linear model XXX WHY?.
+
+In the Reduce-step the local estimators have to be combined into a single ARIMA-model. For this purpose Wang et al. XXX extend the distributed least-square approximation (DLSA) for time series and calculate the weighted least squares to minimize a global loss function. To have a simplified, comparable approach the present paper will execute the Reduce-step also with help of the unconditional arithmetic mean. The resulting model obtained in this way can then be used to make a h-step forecast.
+
+
+# DARIMA: Implementing the theoretical foundation
+This chapter first gives an overview over the general software architecture and then describes the theoretical foundation and its practical implementation directly one after the other.
+
+## Architecture
+The main code-architecture is based on the five steps Wang et al. XXX defined for their proposed framework and for this the most important file is darima.py: It orchestrates the whole model building and forecasting process by calling all classes, methods and helper functions that are required to read the electricity data set, build a model with help of the described Map- (class MapDarima) and Reduce-steps (class ReduceDarima), predicting future values (class ForecastDarima) and evaluate the results (class EvaluationDarima).
+
+Other folders include R-code that will be imported into Python-code (R-folder), the data used to train and evaluate the model (data-folder), helper-functions to convert data between PySpark, Pandas and R and to execute forecasts (py_handlers-folder), configurations for the whole DARIMA-process (configs-folder) and  logging- and builder-functionalities for Spark (py_spark-folder). The following chapters will explain the code implemented in darima.py and its theoretical foundation in more detail.
+
+## Theoretical foundation and implementation
+The theoretical base for the DARIMA model is the seasonal autoregressive integrated moving average (SARIMA(p,d,q)(P,D,Q)) model which is used for time series forecasting. As its name indicates it’s a combination of several models.
+
+The autoregressive model AR(p) forecasts values by using its own previous values in a linear combination. On the other side with the moving average model MA(q) the value of a time series at a given point is modeled as a linear combination of its past white noise error terms which refers to the difference between the actual observed value and the predicted value from previous time points. For both models it’s crucial to figure out the number of lagged observations. That’s what p and q stand for.
+
+For many time series modeling techniques it’s important to have stationary data: data that don’t exhibit any trend or seasonality. Accordingly it’s statistical characteristics as mean and variance should remain constant over time. To remove these phenomena from a data set a differencing can be performed on it. The term “integrated” in SARIMA refers to this differencing operation performed on the time series data and the d stands for the amount this operation is executed.
+
+The combination of these three components together builds the ARIMA model. When an ARIMA model incorporates seasonal components it’s called a SARIMA model. It’s adding seasonal counterparts to the previously described non-seasonal parts which capture patterns that appear in fixed defined intervals. By adding these parts the SARIMA model is capable of effectively modeling and forecasting time series data with complex seasonal patterns. P, D and Q are the seasonal equivalents to the non-seasonal p, d and q orders.
+
+# Map
+
+In the Map step, the data is partitioned into key-value pairs, and each pair is processed individually. This processing involves categorization or the application of specific computations. In our scenario, the mapping step entails dividing the entire training dataset into multiple chunks and then, for each chunk, applying the ARIMA algorithm within R. For our case there is a function called auto.arima within R. The auto.arima function is a feature in R that automatically determines the best ARIMA model configuration for a given time series. This function looks for the optimal model parameters and is used because of it's simplification to find the almost best parameters.
+
+While the concept of the task may seem straightforward, its execution becomes complicated due to the integration of PySpark, R, and Python. The challenge lies in a harmonious combination among these technologies, effectively uniting them into a related solution. Following steps gives an overview of mapping for DARIMA.
+
+* Split the data into n-chunks (RDD-Format) for parallel computing
+* Convert every chunk into a Time-Series object for R, because auto.arima accepts only Time-Series objects
+* Compute the auto.arima for every chunk
+* Return calculated coefficients for every chunk (RDD-Format)
+
+Within the
+
+# Reduce
+
+## Reduce: Distributed Least Squares Approximation
+
+Distributed Least Squares Approximation (DLSA) can be thought of as assigning weights to all coefficients in a model. This ensures that the coefficients are adjusted appropriately to improve model performance and align with the dataset characteristics. The variance of the model's errors, named as sigma2 plays a crucial role in normalizing, scaling, and calibrating the model. This is achieved by dividing the coefficients by sigma.
+
+Following steps gives an overview of reduce:DLSA for DARIMA.
+
+* calculate the sum over all key-value pairs
+* divide all sums by sigma
+
+### Reduce: Standard method
+
+### Reduce: unconditional arithmetic mean
+
+## Implementation with Google Cloud
+
+# Forecast
+
+## ARIMA and AR Model
+
+The universal seasonal ARIMA-Model for a time series $\{y_t, t\in \mathbb Z\}$ can be written as $ARIMA(p,d,q)(P,D,Q)_m$ with non-seasonal parameters $p,d,q$ and seasonal parameters $P,D,Q$ with lag $m$. The formula is as follows
+$$(1 - \sum_{i=1}^p \phi_i B^i) (1 - \sum_{i=1}^P \Phi_i B^{im}) (1-B)^d (1-B)^D y_t = (1 + \sum_{i=1}^q \theta_i B^i) (1 + \sum_{i=1}^Q \Theta_i B^{im}) \epsilon_t$$
+, noted in backward shift notation.
+
+After the linear transformation and with $y_t = y_t - \mu_0 - \mu_1 t - \sum_{j=1}^l \eta_j \gamma_{j,t}$ this equals
+$$y_t  = \beta_0 + \beta_{1,t} + \sum_{i=1}^\infty \pi_i y_{t-i} + \sum_{j=1}^l \eta_j (\gamma_{j,t} - \sum_{i=1}^\infty \pi_i \gamma_{j,t-i}) + \epsilon_t$$
+with
+$$\beta_0 = \mu_0 (1 - \sum_{i=1}^\infty \pi_i) + \mu_1 \sum_{i=1}^\infty i \pi_i$$
+and
+$$\beta_1 = \mu_1 (1 - \sum_{i=1}^\infty \pi_i).$$
+We approximate the infinite order of this AR model with $p=2000$, resulting in an AR(2000) model, following the reasoning the authors made in the paper "Distributed ARIMA models for ultra-long times series". While fitting the model to the training data the parameters or model coefficients $\beta_o, \beta_1, \pi_1, \dots, \pi_p, \eta_1, \dots, \eta_l$ are estimated and with the estimated coefficients, denoted with a $\tilde {}$, a fitted model for the use case is created.
+
+## Forecasting Methods
+
+Generally forecasting is done in one of two ways, forecasting exact values or forecasting an interval of values with a given probability. The first kind, point forecasts, are produced in a recursive way by using the fitted model on values given or forecasted up until time T and therefore forecasting for time T+1.The formula for this is as follows:
+$$\hat y_{T+1\vert T} = \tilde \beta_0 + \tilde \beta_1 (T+1) + \sum_{i=1}^p \tilde \pi_i y_{T+1-i} + \sum_{j=1}^l \tilde \eta_j (\gamma_{j,T+1} - \sum_{i=1}^p \tilde \pi_i \gamma_{j, T+1-i}).$$
+Forecasting for time T+2 follows the same pattern, $\hat y_{T+2\vert T+1}$.
+The second kind, forecasting prediction intervals, uses the fact that the standard error of the forecasted values is only affected by the AR part of the model and therefore can be calculated with the standard deviation of the residuals and the covariance estimate, resulting in the estimated variance $\tilde \sigma^2 = tr(\tilde \Sigma)/p$. With the model errors normally distributed and a prediction interval with confidence level $100(1-\alpha)\%$ a one step forecast interval is given by
+$$[\hat y_{T+1 \vert T} -\Phi^{-1} (1- \frac \alpha 2) \tilde \sigma_1, \hat y_{T+1 \vert T} +\Phi^{-1} (1- \frac \alpha 2) \tilde \sigma_1]$$
+with $\phi$ the cumulative distribution function of the standard normal distribution and can be calculated for forecasting horizons $H \geq 1$ as well, $\hat y_{T+H \vert T}$.
+
+
+In application the forecasting is handled by the functions `forecast_darima` and `predict_ar`. `forecast_arima(Theta, sigma2, x, period='s', h=1, level=[(]80, 95])` takes various arguments for the parameter estimators of the model and settings of the actual forecasting. `Theta` and `sigma2` are the coefficients, `x` is an array of train values, `period` is the seasonal component, `h` sets the forecast horizon and `level` describes the confidence level(s) of the prediction intervals.
+
+The values `x` are along with the parameters `Theta`,`sigma2` and `h` used to call the `predict-ar` method. `predict_ar` has the additional arguments `n_ahead` which  equals `h` and `se_fit` which indicates if the standard error should be calculated. After error handling the parameter inputs the matrix `X` with the shifted values is created, before the fitted values `fits` are calculated as dot product of the arrays `X` and `coef`, as well as the residuals `res` as difference of `x` and `fit`. The forecast is calculated as shown in the equation above, each as the sum of the product of the coefficients and the corresponding values in the AR timeslot. If `se_fit` is true, the standard error of the model is calculated and and the fitted values, the residuals, the predictions and optional the standard error are returned to the `forecast_arima` function.
+
+In the `forecast_arima` function the levels for the prediction intervals are given the correct datatype depending whether it is a single or multiple levels and are checked for correct input. Since the point forecast is calculated in the `predict_ar` function in this function the prediction intervals are calculated from the point forecast and the product of the quantile of the cumulative distribution function of the standard normal distribution and the standard error. The combined results with the levels `level`, the point forecast `mean`, the standard error `se`, the lower and upper bound of the prediction intervals `lower` and `upper`, the fitted values `fitted` and the residuals `residuals` are returned as a dictionary and written in a json-file.
 
 # Evaluation
+Evaluating the accuracy and reliability of forecasting models is a critical aspect of decision making in various fields varrieng from finance, engineering to epdemiology. Two commonly used metrics for assesing forecast performance are the Mean absolute Scaled Error (MASE) and the Mean Scaled Interval Score (MSIS). These metrics allow to evaluate the quality of forecasts and to compare it with other models by a uniticized value.
+
+In the following both values and equations are briefly introduced and applied to the determined forecasts based on the Nemassboost dataset. The goal is to evaluate the quality of the solution in comparison to the paper of Wang et. al. [@Wang2022].
+
+## MASE - Mean absolute scaled error
+In evaluating the accuracy of point forecasts, the mean absolute scaled error (MASE) can be chosen as metric. The error measure is first introduced by Hyndman and Köhler to create a new metric measure to assess forecasts [@Hyndmann2006].
+
+Unlike other error measures such as mean absolute error (MAE) or mean squared error (MSE), MASE has a specific property that makes it particualarly useful for forecasting on time series data. To name one of the advantages is that the MASE is robust to the scale and distribution of the data, making it applicable for comparing forecasts across different contexts.
+
+The absolute mean error of the forecast (MAE) is put into relation of the mean error of a naive method. Thus, the MASE expresses how good your forecasts are compared to a simple, naive method.A naive method could be that predicted values repeat and correspond to already past values with a time offset. A MASE value of 1 indicates that your forecasts are as good as the naive forecasts, while a value less than 1 indicates that your forecasts are better than the naïve forecasts. The benchmark set by the naive forecast can be adjusted accordingly, but should be similiar to the one you are comparing with.
+
+\begin{equation}
+MASE = \frac{MAE(\text{forecast})}{MAE(\text{na\"{i}ve method})} = \frac{\frac{1}{H} \sum_{t=T+1}^{T+H} \left|y_t - \hat{y}_{t|T}\right|}{\frac{1}{T-m} \sum_{t=m+1}^{T} \left|y_t - y_{t-m}\right|}
+\end{equation}
+
+
+Referring to the example with the naive forecast, the time offset can be reduced so that the forecast runs against the actual value. This has no application in practice, but the benchmark can be set higher with respect to its comparison with the error value of the forecast. The limes would thus run towards zero and the error measure towards infinity depending on the error of the forecast.
+
+\begin{equation}
+ \lim_{{m\to t}} \frac{\frac{1}{H} \sum_{{t=T+1}}^{{T+H}} \left|y_t - \hat{y}_{t|T}\right|}{\frac{1}{T-m} \sum_{{t=m+1}}^T \left|y_t - y_{t-m}\right|} = \ \infty
+\end{equation}
+
+## MSIS - Mean scaled intervals core
+The MSIS assesses the quality of prediction intervals, quantifying the coverage of uncertainty inherent in forecasts. The benchmarking is comparable to the MASE metric, whereby the denominator contains the naive Method.It was first introduced by Gneiting (@Gneiting2007). In the equation $U_{t|T}$ and $L_{t|T}$ represent the Upper and the Lower bounds of the interval. The  intervall is set up by $\alpha$, which determines the width.
+
+\begin{equation}
+MSIS = \frac{\frac{1}{H}\sum_{t=T+1}^{T+H}(U_{t|T}-L_{t|T}) + \frac{2}{\alpha}(L_{t|T}-y_t) \mathbf{1}\{y_t<L_{t|T}\} + \frac{2}{\alpha}(y_t - U_{t|T}) \mathbf{1}\{y_t > U_{t|T}\}}{\frac{1}{T-m}\sum_{t=m+1}^T |y_t - y_{t-m}|}
+\end{equation}
+
+A lower MSIS value indicates a better forecast accuracy and more precised intervals, while a higher MSIS value suggests that the intervals are too wide relative to the forecast error.
 
 ## Accuracy: MASE and MSIS
 
