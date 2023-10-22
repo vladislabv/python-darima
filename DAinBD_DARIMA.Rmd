@@ -1,0 +1,219 @@
+---
+title: "Distributed ARIMA"
+abstract: ""
+keywords: ""
+
+course: Datenanalyse in Big Data (Prof. Dr. Buchwitz)
+supervisor: Prof. Dr. Buchwitz
+city: Meschede
+
+# List of Authors
+author:
+- familyname: Hoheisel
+  othernames: Jonas
+  address: "MatNr: "
+  qualifications: "Data Science (MA, 2. Semester)"
+  email: hoheisel.jonas@fh-swf.de
+- familyname: Henkenherm
+  othernames: Kathrin
+  address: "MatNr: 30362826"
+  qualifications: "Data Science (MA, 2. Semester)"
+  email: henkenherm.kathrin@fh-swf.de
+- familyname: Katzenberger
+  othernames: Ole
+  address: "MatNr: "
+  qualifications: "Data Science (MA, 2. Semester)"
+  email: katzenberger.ole@fh-swf.de
+- familyname: Krilov
+  othernames: Vitali
+  address: "MatNr: "
+  qualifications: "Data Science (MA, 2. Semester)"
+  email: krilov.vitali@fh-swf.de
+- familyname: Stasenko
+  othernames: Vladislav
+  address: "MatNr: "
+  qualifications: "Data Science (MA, 2. Semester)"
+  email: stasenko.vladislav@fh-swf.de
+# - familyname: Curie
+#   othernames: Pierre
+#   address: "MatNr: 87654321"
+#   qualifications: "Data Science (MA, 2. Semester)"
+#   email: curie.pierre@fh-swf.de
+
+# Language Options
+german: false # German Dummy Text
+lang: en-gb   # Text Language: en-gb, en-us, de-de
+
+# Indexes
+toc: true     # Table of Contents
+lot: false    # List of Tables
+lof: false    # List of Figures
+
+# Output Options
+bibliography: references.bib
+biblio-style: authoryear-comp
+blind: false
+cover: true
+checklist: true
+output:
+  fhswf::seminarpaper:
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 8
+    keep_tex: no
+    number_sections: yes
+    citation_package: biblatex
+knit: fhswf::render_seminarpaper
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache=FALSE, messages=FALSE, warning=FALSE, 
+                      attr.source='.numberLines', singlespacing = TRUE)
+fhswf::fhswf_hooks()
+
+# Load Packages
+library(fhswf)
+library(ggplot2)
+```
+
+
+# Introduction
+
+# ARIMA and Distributed Computing
+
+# Map Reduce
+
+## Reduce: Standard method
+
+## Reduce: unconditional arithmetic mean
+
+# Implementation with Google Cloud
+
+# Forecast 
+
+## Point Forecast
+
+## Prediction Intervals
+
+# Evaluation
+
+## Accuracy: MASE and MSIS
+
+## Performance: PySpark vs. Single Node
+
+# Discussion
+
+# Appendix
+
+| Chapter      | Author     |
+|--------------|-----------|
+| Introduction |     |
+| ARIMA and Distributed Computing      |  |
+| Map Reduce      |  |
+| Reduce: Standard method      |  |
+| Reduce: unconditional arithmetic mean      |  |
+| Implementation with Google Cloud      |  |
+| Forecast      |  |
+| Point Forecast      |  |
+| Prediction Intervals      |  |
+| Evaluation      |  |
+| Accuracy: MASE and MSIS      |  |
+| Performance: PySpark vs. Single Node      |  |
+| Discussion    |  |
+
+
+
+<!-- # Data -->
+<!-- In a famous paper, @BC64 introduced a family of transformations \dots -->
+
+<!-- ```{r histogram, fig.cap="Nice histogram.", message=FALSE, warning=FALSE} -->
+<!-- qplot(exp(rnorm(200))) + theme_bw() -->
+<!-- ``` -->
+
+<!-- Consider the logNormal data plotted in Figure \ref{fig:histogram}. -->
+
+<!-- # Methodology -->
+
+<!-- Look a wild formula for $s^2$ appeared. -->
+
+<!-- $$s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i-\bar{x})^2$$ -->
+
+<!-- Longer Formulas can be spread across multiple lines manually using the `aligned` environment. -->
+
+<!-- $$ -->
+<!-- \begin{aligned} -->
+<!-- \hat{y}_i = {} & \hat{\beta}_0 + \\ -->
+<!--                & \hat{\beta}_1 \cdot x_1 +  \\ -->
+<!--                & \hat{\beta}_2 \cdot x_2 + \hat{\beta}_3 \cdot x_3 + \hat{\epsilon} -->
+<!-- \end{aligned} -->
+<!-- $$ -->
+
+<!-- # Analysis -->
+
+<!-- ```{r cars} -->
+<!-- knitr::kable(head(mtcars), booktabs=T, linesep="", caption="Some Cars.") -->
+<!-- ``` -->
+
+<!-- Table \ref{tab:cars} contains some values for cars \dots -->
+
+<!-- This template supports execution of **R** and **Python** code. -->
+
+<!-- ## R Code -->
+
+<!-- ```{r, echo=T} -->
+<!-- # seed random number generator and generate 3 random numbers -->
+<!-- set.seed(1) -->
+<!-- rnorm(n=3) -->
+<!-- ``` -->
+
+<!-- ## Python Code -->
+
+<!-- ```{python, echo=T} -->
+<!-- from random import seed -->
+<!-- from random import random -->
+<!-- # seed random number generator and generate 3 random numbers -->
+<!-- seed(1) -->
+<!-- print(random(), random(), random()) -->
+<!-- ``` -->
+
+<!-- # Citation -->
+
+<!-- ## Using Citations -->
+
+<!-- This templates comes with some frequently used references. -->
+
+<!-- @StudienbuchStatistik -->
+
+<!-- @FoliensatzStatistik -->
+
+<!-- References can be cited in three different ways. -->
+
+<!-- @Fahrmeir2016 -->
+
+<!-- @Fahrmeir2016[p. 1058] -->
+
+<!-- [@Fahrmeir2016, p. 1058] -->
+
+<!-- ## Managing References -->
+
+<!-- References can be added to the `references.bib` that comes with this template.  -->
+
+<!-- # Conclusion -->
+
+<!-- To switch the language to german, change the parameters in the `YAML` Header to the following values. -->
+
+<!-- ```{r, echo=T, eval=F} -->
+<!-- # Language Options -->
+<!-- german: true -->
+<!-- lang: de-de  -->
+<!-- ``` -->
+
+\newpage
+
+# Technical Appendix {-}
+
+```{r, echo = TRUE}
+Sys.time()
+sessionInfo()
+```
+
