@@ -4,18 +4,21 @@ darima.py
 """
 
 # External Packages
-import time
 import json
+from enum import Enum
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+from numpy import ndarray
+from pyspark import RDD
+from pyspark.sql import DataFrame
 from rpy2 import robjects
-from py_spark.spark import start_spark
 
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df, \
     convert_spark_2_pandas_ts
 from py_handlers.utils import ppf, ar_to_ma
+from py_spark.spark import start_spark
 
 
 class Darima:
@@ -36,13 +39,13 @@ class Darima:
         :type column_name_time: str
         """
 
-        with open("configs/darima_config.json", 'r') as config_file:
+        with open("darima_config.json", 'r') as config_file:
             self.config_darima = json.load(config_file)
-        self.num_of_partitions = self.config_darima['num_partitions']
-        self.frequency = self.config_darima['data_time_freq']
+        self.num_of_partitions: int = self.config_darima['num_partitions']
+        self.frequency: int = self.config_darima['data_time_freq']
         self.method = self.config_darima["method"]
-        self.column_name_value = column_name_value
-        self.column_name_time = column_name_time
+        self.column_name_value: str = column_name_value
+        self.column_name_time: str = column_name_time
 
     def darima(self):
         """
@@ -67,25 +70,34 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
-        train_data = self.load_data_from_csv(spark, self.config_darima['train_datapath'])
-        test_data = self.load_data_from_csv(spark, self.config_darima['test_datapath'])
+        train_data: DataFrame = self.load_data_from_csv(spark, self.config_darima['train_datapath'])
+        test_data: DataFrame = self.load_data_from_csv(spark, self.config_darima['test_datapath'])
+        # Used for gcp
+        # train_data: DataFrame = self.load_data_from_csv(spark, self.config_darima['gcp_train_datapath'])
+        # test_data: DataFrame = self.load_data_from_csv(spark, self.config_darima['gcp_test_datapath'])
 
-        data_transformed = self.map_reduce(train_data).collect()
-        df_coeffs = convert_result_to_df(data_transformed)
+        log.warn("MAP_REDUCE")
+        data_transformed: list = self.map_reduce(train_data).collect()
 
-        if self.config_darima['method'] == 'dlsa':
+        log.warn("START CONVERT")
+        df_coeffs: pd.DataFrame = convert_result_to_df(data_transformed)
+
+        log.warn("DLSA")
+        if self.config_darima['method'] == "dlsa":
             temp_sigma = (df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0])
-            df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
+            df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma)) / test_data.count()
             df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * test_data.count()
 
         elif self.config_darima["method"] == "mean":
+            log.warn("MEAN")
             df_coeffs["value"] = df_coeffs["value"] / test_data.count()
 
         # before doing preds convert pyspark df to pandas df
-        test_pd_ts = convert_spark_2_pandas_ts(test_data, self.column_name_time)
-        train_pd_ts = convert_spark_2_pandas_ts(train_data, self.column_name_time)
+        test_pd_ts: pd.Series = convert_spark_2_pandas_ts(test_data, self.column_name_time)
+        train_pd_ts: pd.Series = convert_spark_2_pandas_ts(train_data, self.column_name_time)
 
-        preds = ForecastDarima().forecast_darima(
+        log.warn("FORECAST")
+        preds: dict = ForecastDarima().forecast_darima(
             Theta=np.array(df_coeffs[df_coeffs['coef'] != 'sigma2']["value"].values),
             sigma2=df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0],
             x=train_pd_ts,
@@ -93,8 +105,9 @@ class Darima:
             h=len(test_pd_ts),
             level=[80, 95],
         )
-        
-        eval_metrics = EvaluationDarima().model_evaluation(
+
+        log.warn("EVALUATION")
+        eval_metrics: pd.DataFrame = EvaluationDarima().model_evaluation(
             log=log,
             train=train_pd_ts,
             test=test_pd_ts,
@@ -104,7 +117,7 @@ class Darima:
             upper=preds["upper"],
             level=[80, 95],
         )
-        score = eval_metrics.mean(axis=0)
+        score: int = eval_metrics.mean(axis=0)
         print(score)
         # log the success and terminate Spark application
         log.warn('Darima is finished')
@@ -127,7 +140,7 @@ class Darima:
 
         return df
 
-    def map_reduce(self, df):
+    def map_reduce(self, df: DataFrame) -> RDD:
         """
         Transform original dataset.
 
@@ -135,26 +148,26 @@ class Darima:
         :return: Transformed DataFrame.
         """
 
-        parts = (
+        parts: RDD = (
             df
             .repartition(self.num_of_partitions)
             .rdd
         )
 
-        converted_ts_rdd = (
+        converted_ts_rdd: RDD = (
             parts
             .mapPartitions(lambda x: MapDarima().map_arima(x))
             .flatMap(lambda x: x)
         )
 
-        if self.config_darima['method'] == "dlsa":
+        result: RDD | None = None
+        if self.config_darima['method'] == "dlsa" :
             result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
         elif self.config_darima['method'] == "mean":
             result = ReduceDarima().reduce_mean(converted_ts_rdd)
-        else:
-            result = None
+
         return result
-    
+
 
 class MapDarima(Darima):
     """
@@ -167,7 +180,7 @@ class MapDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def map_arima(self, iterator):
+    def map_arima(self, iterator) -> list:
         """
         Will go through a partition (iterator)  convert it into an R-TimeSeries and yield the coefficients.
 
@@ -178,14 +191,14 @@ class MapDarima(Darima):
         :return: Will return a list of tuples with all coefficients
         :rtype: list(tuple())
         """
-        rows = list(iterator)
-        demand_values = [row["demand"] for row in rows]
-        time_values = [str(row["time"]) for row in rows]
-        ts = convert_to_r_time_series(demand_values, time_values, self.frequency)
-        result = self.auto_arima(ts)
+        rows: list = list(iterator)
+        demand_values: list = [row["demand"] for row in rows]
+        time_values: list = [str(row["time"]) for row in rows]
+        ts: robjects.r["ts"] = convert_to_r_time_series(demand_values, time_values, self.frequency)
+        result: list = self.auto_arima(ts)
         yield result
 
-    def auto_arima(self, ts):
+    def auto_arima(self, ts) -> list:
         """
         Calling the R-Package within this project.
 
@@ -200,7 +213,7 @@ class MapDarima(Darima):
         :return: Will return List of tuples with named coefficients
         :rtype: list(tuple())
         """
-        robjects.r.source("R/auto_arima.R")
+        robjects.r.source("auto_arima.R")
         r_auto_arima = robjects.r["auto_arima"]
         method = self.config_darima['method']
         arima_model_coefficients = r_auto_arima(ts, method)
@@ -217,7 +230,7 @@ class ReduceDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def reduce_dlsa(self, converted_ts_rdd):
+    def reduce_dlsa(self, converted_ts_rdd: RDD) -> RDD:
         """
         Calculating for a RDD partition the sum for all key-value pairs.
         Is created for getting the sum of all the coefficients.
@@ -229,7 +242,7 @@ class ReduceDarima(Darima):
         """
 
         # Define the initial value for each key
-        initial_value = 0
+        initial_value: int = 0
 
         # First lambda expression for Within-Partition Reduction Step::
         # a: is the current sum for the key.
@@ -241,10 +254,10 @@ class ReduceDarima(Darima):
         # b: is the next partition's sum.
         calc_cross_parts = lambda a, b: a + b
 
-        sums_over_keys = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        sums_over_keys: RDD = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
         return sums_over_keys
 
-    def reduce_mean(self, converted_ts_rdd):
+    def reduce_mean(self, converted_ts_rdd: RDD) -> RDD:
         """
         Calculating mean of the ARIMA coefficients across all partitions
 
@@ -259,14 +272,14 @@ class ReduceDarima(Darima):
         calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
 
         calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
-        mean_coeffs = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        mean_coeffs: RDD = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
 
         # Finally, calculate the average for each KEY, and collect results.
-        result = mean_coeffs.mapValues(lambda v: v[0] / v[1])
+        result: RDD = mean_coeffs.mapValues(lambda v: v[0] / v[1])
 
         return result
 
-    
+
 class ForecastDarima(Darima):
     """
     Is the main forecasting class. This class inherit Darima class. Is calculating the predictions of the
@@ -276,7 +289,7 @@ class ForecastDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def predict_ar(self, Theta, sigma2, x, n_ahead=1, se_fit=True):
+    def predict_ar(self, Theta: list, sigma2: ndarray, x, n_ahead=1, se_fit=True) -> dict:
         """
         Predicts the values by applying autoregressive model.
         Optionally calculated standard errors for the made predictions over the given horizon.
@@ -336,8 +349,8 @@ class ForecastDarima(Darima):
             result["se"] = se
 
         return result
-    
-    def forecast_darima(self, Theta, sigma2, x, period=24, h=1, level=[80, 95]):
+
+    def forecast_darima(self, Theta: list, sigma2: ndarray, x, period=24, h=1, level=[80, 95]) -> dict:
         """
         Forecasts values over the given horizon in the future. The predictions are formed as pandas (Time-) series.
         The results of forecast are additionaly dumped in form of the json document for further analysis.
@@ -352,7 +365,7 @@ class ForecastDarima(Darima):
         :rtype: dict
         """
         # Check and prepare data
-        pred = self.predict_ar(Theta=Theta, sigma2=sigma2, x=x, n_ahead=h)
+        pred: dict = self.predict_ar(Theta=Theta, sigma2=sigma2, x=x, n_ahead=h)
 
         # Check and prepare levels
         level = np.array(level) if isinstance(level, list) else level
@@ -400,15 +413,17 @@ class ForecastDarima(Darima):
 
         return result
 
+
 class EvaluationDarima(Darima):
     """
     Is the main forecasting class. This class inherit Darima class. Is calculating the result
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def model_evaluation(self, log, train, test, period, pred, lower, upper, level=[80, 95]):
+    def model_evaluation(self, log, train: pd.Series, test: pd.Series, period: int, pred, lower, upper,
+                         level=[80, 95]) -> pd.DataFrame:
         """
         Calculates the evaluation metrics between the predictions and actiual test data.
         Use additionally test data to calculate scaling coefficient for evaluation metrics.
@@ -438,14 +453,14 @@ class EvaluationDarima(Darima):
         mase = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / scaling
         mase.name = "mase"
 
-        import matplotlib.pyplot as plt
-        plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
-        plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
+        # plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
+        # plt.show()
 
         # Calculate sMAPE
         smape = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / (
-                    (np.abs(test.reset_index(drop=True)) + np.abs(pred.reset_index(drop=True))) / 2)
+                (np.abs(test.reset_index(drop=True)) + np.abs(pred.reset_index(drop=True))) / 2)
         smape.name = "smape"
 
         # Calculate MSIS
@@ -464,7 +479,7 @@ class EvaluationDarima(Darima):
 
         # Out
         # --------------------------------------
-        out_df = pd.concat([mase, smape, msis.reset_index(drop=True)], axis=1)
+        out_df: pd.DataFrame = pd.concat([mase, smape, msis.reset_index(drop=True)], axis=1)
         out_df.index = time_index
 
         if any(out_df.isna()):

@@ -1,5 +1,8 @@
 suppressPackageStartupMessages(require("forecast"))
 suppressPackageStartupMessages(require("polynom"))
+install.packages("polynom")
+install.packages("forecast")
+
 
 ar_coefficients <- function(ar = 0, d = 0L, ma = 0, 
                             sar = 0, D = 0L, sma = 0, 
@@ -68,7 +71,7 @@ auto_arima <- function(train_data, apply_dlsa){
     tol <- 2000
 
     # Fitting Arima Model
-    arima_model <- auto.arima(train_data, max.p=20, max.q=20, max.P=20, max.Q=20, max.order=40, seasonal=TRUE)
+    arima_model <- forecast::auto.arima(train_data, max.p=20, max.q=20, max.P=20, max.Q=20, max.order=40, seasonal=TRUE)
 
     # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)
