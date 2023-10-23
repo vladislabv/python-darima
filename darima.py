@@ -15,7 +15,7 @@ from py_spark.spark import start_spark
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df, \
     convert_spark_2_pandas_ts
-from py_handlers.utils import ppf, inv_box_cox, ar_to_ma
+from py_handlers.utils import ppf, ar_to_ma
 
 
 class Darima:
