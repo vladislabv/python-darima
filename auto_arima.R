@@ -1,5 +1,8 @@
 suppressPackageStartupMessages(require("forecast"))
 suppressPackageStartupMessages(require("polynom"))
+install.packages("polynom")
+install.packages("forecast")
+
 
 # file_path <- "C:/Users/VID/Desktop/GitHub/python-darima/data/CT_test.csv"
 # data <- read.csv(file_path)
@@ -77,7 +80,7 @@ auto_arima <- function(train_data, apply_dlsa){
     tol <- 2000
 
     # Fitting Arima Model
-    arima_model <- auto.arima(train_data, max.p=10, max.q=10, max.P=10, max.Q=10, max.order=20, seasonal=TRUE)
+    arima_model <- forecast::auto.arima(train_data, max.p=10, max.q=10, max.P=10, max.Q=10, max.order=20, seasonal=TRUE)
 
     # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)

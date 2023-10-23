@@ -3,5 +3,7 @@
   "data_time_freq": 24,
   "train_datapath": "data/NEMASSBOST_train.csv",
   "test_datapath": "data/NEMASSBOST_test.csv",
+  "gcp_train_datapath": "gs://ok-spark-bucket/data/NEMASSBOST_train.csv",
+  "gcp_test_datapath": "gs://ok-spark-bucket/data/NEMASSBOST_test.csv",
   "method": "mean"
 }
