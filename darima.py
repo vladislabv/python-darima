@@ -76,7 +76,7 @@ class Darima:
         if self.config_darima['method'] == 'dlsa':
             temp_sigma = (df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0])
             df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
-            df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * train_data.count()
+            df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * test_data.count()
 
         elif self.config_darima["method"] == "mean":
             df_coeffs["value"] = df_coeffs["value"] / test_data.count()

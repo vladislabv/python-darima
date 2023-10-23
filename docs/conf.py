@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'Machine Learning'
-copyright = '2023 Vitali Krilov'
-author = 'Vitali Krilov'
+project = 'DARIMA'
+copyright = '-'
+author = 'Hoheisel Jonas, Henkenherm Kathrin, Vladislav Stasenko, Ole Kartenberger, Vitali Krilov'
 
 # The full version, including alpha/beta/rc tags
 release = '23.08.2023'
