@@ -1,14 +1,16 @@
 import pandas as pd
 import rpy2.robjects as robjects
+from pyspark.sql import DataFrame
 
 from pyspark.sql.functions import col
-from pyspark.sql.types import TimestampType
+from pyspark.sql.types import TimestampType, Row
+
 
 def convert_to_r_time_series(data: list,
                              data_time: list,
                              frequency: int = 12,
                              is_datetime: bool = True,
-                             format: str = "%Y-%m-%d %H:%M:%S"):
+                             format: str = "%Y-%m-%d %H:%M:%S") -> robjects.r["ts"]:
 
 
     """
@@ -50,7 +52,7 @@ def convert_to_r_time_series(data: list,
     return converted_object
 
 
-def rvector_to_list_of_tuples(r_vector):
+def rvector_to_list_of_tuples(r_vector) -> list[tuple]:
     """
     Converts named R vector to a list of tuples [(coef_1, value), (coef_2, value2)...]
     :return: Pandas DataFrame
@@ -62,12 +64,12 @@ def rvector_to_list_of_tuples(r_vector):
     names = robjects.r.names(r_vector)
     
     # Create a list of tuples with name-value pairs
-    result = [(names[i], python_list[i]) for i in range(len(python_list))]
+    result: list[tuple] = [(names[i], python_list[i]) for i in range(len(python_list))]
 
     return result
 
 
-def convert_result_to_df(result):
+def convert_result_to_df(result: list) -> pd.DataFrame:
     """
     Will convert the results into structured DataFrames.
 
@@ -98,18 +100,18 @@ def convert_result_to_df(result):
     return result
 
 
-def convert_spark_2_pandas_ts(spark_df, column_name_time):
+def convert_spark_2_pandas_ts(spark_df, column_name_time) -> pd.Series:
     """
     Converts Spark DataFrame to Pandas (Time-) Series
     :return: Pandas DataFrame
     :rtype: pd.Series
     """
-    spark_df = spark_df.withColumn(column_name_time, col(column_name_time).cast(TimestampType()))
-    rows = spark_df.collect()
+    spark_df: DataFrame = spark_df.withColumn(column_name_time, col(column_name_time).cast(TimestampType()))
+    rows: list[Row] = spark_df.collect()
 
     # Convert the list of Row objects to a Pandas DataFrame
     pandas_df = pd.DataFrame(rows, columns=spark_df.columns)
     pandas_df.set_index(column_name_time, inplace=True)
-    pandas_ts = pandas_df.squeeze()
+    pandas_ts: pd.Series = pandas_df.squeeze()
     
     return pandas_ts
