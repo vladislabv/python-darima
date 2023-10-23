@@ -66,11 +66,11 @@ class Darima:
         log.warn('Darima job is up-and-running')
 
         # execute ETL (Darima) pipeline with Map and Reduce steps
-        # train_data = self.load_data_from_csv(spark, self.config_darima['train_datapath'])
-        # test_data = self.load_data_from_csv(spark, self.config_darima['test_datapath'])
+        train_data = self.load_data_from_csv(spark, self.config_darima['train_datapath'])
+        test_data = self.load_data_from_csv(spark, self.config_darima['test_datapath'])
         # Used for gcp
-        train_data = self.load_data_from_csv(spark, self.config_darima['gcp_train_datapath'])
-        test_data = self.load_data_from_csv(spark, self.config_darima['gcp_test_datapath'])
+        # train_data = self.load_data_from_csv(spark, self.config_darima['gcp_train_datapath'])
+        # test_data = self.load_data_from_csv(spark, self.config_darima['gcp_test_datapath'])
 
         log.warn("MAP_REDUCE")
         data_transformed = self.map_reduce(train_data).collect()
