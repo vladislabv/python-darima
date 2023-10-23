@@ -1,14 +1,6 @@
 suppressPackageStartupMessages(require("forecast"))
 suppressPackageStartupMessages(require("polynom"))
 
-# file_path <- "C:/Users/VID/Desktop/GitHub/python-darima/data/CT_test.csv"
-# data <- read.csv(file_path)
-#
-# train_data <- ts(data[["demand"]][0:100], frequency = 24)
-# test_data <- ts(data[["demand"]][2001:2300], frequency = 24)
-# time <- data$time[2001:2300]
-
-
 ar_coefficients <- function(ar = 0, d = 0L, ma = 0, 
                             sar = 0, D = 0L, sma = 0, 
                             mean = 0, drift = 0, 
@@ -68,7 +60,6 @@ ar_coefficients <- function(ar = 0, d = 0L, ma = 0,
         c(c0, c1, pie), 
         c("beta0", "beta1", paste("ar", sep = "", seq_len(tol)))
     )
-
     return(coef)
 }
 
@@ -77,7 +68,7 @@ auto_arima <- function(train_data, apply_dlsa){
     tol <- 2000
 
     # Fitting Arima Model
-    arima_model <- auto.arima(train_data, max.p=10, max.q=10, max.P=10, max.Q=10, max.order=20, seasonal=TRUE)
+    arima_model <- auto.arima(train_data, max.p=20, max.q=20, max.P=20, max.Q=20, max.order=40, seasonal=TRUE)
 
     # Getting values from arima_model
     sigma2 <- c(arima_model$sigma2)
@@ -118,6 +109,8 @@ auto_arima <- function(train_data, apply_dlsa){
         # append sigma to the resulting vector
         ar.coef["sigma2"] <- sigma2
     }
+
+    print(ar.coef)
 
     # should be named vector
     return(ar.coef)

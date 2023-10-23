@@ -15,7 +15,7 @@ from py_spark.spark import start_spark
 # Internal Packages
 from py_handlers.converters import convert_to_r_time_series, rvector_to_list_of_tuples, convert_result_to_df, \
     convert_spark_2_pandas_ts
-from py_handlers.utils import ppf, inv_box_cox, ar_to_ma
+from py_handlers.utils import ppf, ar_to_ma
 
 
 class Darima:
@@ -76,7 +76,7 @@ class Darima:
         if self.config_darima['method'] == 'dlsa':
             temp_sigma = (df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0])
             df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
-            df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * train_data.count()
+            df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * test_data.count()
 
         elif self.config_darima["method"] == "mean":
             df_coeffs["value"] = df_coeffs["value"] / test_data.count()
