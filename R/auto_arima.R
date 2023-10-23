@@ -115,17 +115,3 @@ auto_arima <- function(train_data, apply_dlsa){
     # should be named vector
     return(ar.coef)
 }
-
-
-
-forecast_arima <- function(arima_model, test_data){
-
-    # Prognose für die Testdaten
-    forecast_values <- forecast(arima_model, h = length(test_data))
-
-    write.csv(forecast_values, file = "forecasted_values.csv", row.names = FALSE)
-    return (forecast_values)
-
-}
-
-# results <- auto_arima(train_data)
