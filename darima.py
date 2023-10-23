@@ -21,11 +21,6 @@ from py_handlers.utils import ppf, ar_to_ma
 from py_spark.spark import start_spark
 
 
-class ReduceMethod(Enum):
-    MEAN = "mean"
-    DLSA = "dlsa"
-
-
 class Darima:
     """
     Darima is the Meta Class for modelling.
@@ -48,7 +43,7 @@ class Darima:
             self.config_darima = json.load(config_file)
         self.num_of_partitions: int = self.config_darima['num_partitions']
         self.frequency: int = self.config_darima['data_time_freq']
-        self.method: ReduceMethod = self.config_darima["method"]
+        self.method = self.config_darima["method"]
         self.column_name_value: str = column_name_value
         self.column_name_time: str = column_name_time
 
@@ -82,18 +77,18 @@ class Darima:
         # test_data: DataFrame = self.load_data_from_csv(spark, self.config_darima['gcp_test_datapath'])
 
         log.warn("MAP_REDUCE")
-        data_transformed: RDD[tuple] | None = self.map_reduce(train_data)
+        data_transformed: list = self.map_reduce(train_data).collect()
 
         log.warn("START CONVERT")
-        df_coeffs: pd.DataFrame = convert_result_to_df(data_transformed.collect())
+        df_coeffs: pd.DataFrame = convert_result_to_df(data_transformed)
 
         log.warn("DLSA")
-        if self.config_darima['method'] == ReduceMethod.DLSA.value:
+        if self.config_darima['method'] == "dlsa":
             temp_sigma = (df_coeffs[df_coeffs['coef'] == 'sigma2']["value"].values[0])
-            df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma))/test_data.count()
+            df_coeffs["value"] = (df_coeffs["value"] * (1 / temp_sigma)) / test_data.count()
             df_coeffs[df_coeffs['coef'] == 'sigma2'].loc[:, "value"] = (1 / temp_sigma) * test_data.count()
-            
-        elif self.config_darima["method"] == ReduceMethod.MEAN.value:
+
+        elif self.config_darima["method"] == "mean":
             log.warn("MEAN")
             df_coeffs["value"] = df_coeffs["value"] / test_data.count()
 
@@ -145,7 +140,7 @@ class Darima:
 
         return df
 
-    def map_reduce(self, df: DataFrame) -> RDD[tuple] | None:
+    def map_reduce(self, df: DataFrame) -> RDD:
         """
         Transform original dataset.
 
@@ -165,10 +160,10 @@ class Darima:
             .flatMap(lambda x: x)
         )
 
-        result: RDD[tuple] | None = None
-        if self.config_darima['method'] == ReduceMethod.DLSA.value:
+        result: RDD | None = None
+        if self.config_darima['method'] == "dlsa" :
             result = ReduceDarima().reduce_dlsa(converted_ts_rdd)
-        elif self.config_darima['method'] == ReduceMethod.MEAN.value:
+        elif self.config_darima['method'] == "mean":
             result = ReduceDarima().reduce_mean(converted_ts_rdd)
 
         return result
@@ -185,7 +180,7 @@ class MapDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def map_arima(self, iterator) -> list[tuple]:
+    def map_arima(self, iterator) -> list:
         """
         Will go through a partition (iterator)  convert it into an R-TimeSeries and yield the coefficients.
 
@@ -200,10 +195,10 @@ class MapDarima(Darima):
         demand_values: list = [row["demand"] for row in rows]
         time_values: list = [str(row["time"]) for row in rows]
         ts: robjects.r["ts"] = convert_to_r_time_series(demand_values, time_values, self.frequency)
-        result: list[tuple] = self.auto_arima(ts)
+        result: list = self.auto_arima(ts)
         yield result
 
-    def auto_arima(self, ts) -> list[tuple]:
+    def auto_arima(self, ts) -> list:
         """
         Calling the R-Package within this project.
 
@@ -235,7 +230,7 @@ class ReduceDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def reduce_dlsa(self, converted_ts_rdd: RDD) -> RDD[tuple]:
+    def reduce_dlsa(self, converted_ts_rdd: RDD) -> RDD:
         """
         Calculating for a RDD partition the sum for all key-value pairs.
         Is created for getting the sum of all the coefficients.
@@ -259,10 +254,10 @@ class ReduceDarima(Darima):
         # b: is the next partition's sum.
         calc_cross_parts = lambda a, b: a + b
 
-        sums_over_keys: RDD[tuple] = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        sums_over_keys: RDD = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
         return sums_over_keys
 
-    def reduce_mean(self, converted_ts_rdd: RDD) -> RDD[tuple]:
+    def reduce_mean(self, converted_ts_rdd: RDD) -> RDD:
         """
         Calculating mean of the ARIMA coefficients across all partitions
 
@@ -277,10 +272,10 @@ class ReduceDarima(Darima):
         calc_within_parts = lambda a, b: (a[0] + b, a[1] + 1)
 
         calc_cross_parts = lambda a, b: (a[0] + b[0], a[1] + b[1])
-        mean_coeffs: RDD[tuple] = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
+        mean_coeffs: RDD = converted_ts_rdd.aggregateByKey(initial_value, calc_within_parts, calc_cross_parts)
 
         # Finally, calculate the average for each KEY, and collect results.
-        result: RDD[tuple] = mean_coeffs.mapValues(lambda v: v[0] / v[1])
+        result: RDD = mean_coeffs.mapValues(lambda v: v[0] / v[1])
 
         return result
 
@@ -427,7 +422,8 @@ class EvaluationDarima(Darima):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def model_evaluation(self, log, train: pd.Series, test: pd.Series, period: int, pred, lower, upper, level=[80, 95]) -> pd.DataFrame:
+    def model_evaluation(self, log, train: pd.Series, test: pd.Series, period: int, pred, lower, upper,
+                         level=[80, 95]) -> pd.DataFrame:
         """
         Calculates the evaluation metrics between the predictions and actiual test data.
         Use additionally test data to calculate scaling coefficient for evaluation metrics.
@@ -457,10 +453,10 @@ class EvaluationDarima(Darima):
         mase = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / scaling
         mase.name = "mase"
 
-        import matplotlib.pyplot as plt
-        plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
-        plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # plt.plot(test.reset_index(drop=True).index, test.reset_index(drop=True), color="blue")
+        # plt.plot(pred.reset_index(drop=True).index, pred.reset_index(drop=True), color="red")
+        # plt.show()
 
         # Calculate sMAPE
         smape = np.abs(test.reset_index(drop=True) - pred.reset_index(drop=True)) / (

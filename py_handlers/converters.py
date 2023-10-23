@@ -52,7 +52,7 @@ def convert_to_r_time_series(data: list,
     return converted_object
 
 
-def rvector_to_list_of_tuples(r_vector) -> list[tuple]:
+def rvector_to_list_of_tuples(r_vector) -> list:
     """
     Converts named R vector to a list of tuples [(coef_1, value), (coef_2, value2)...]
     :return: Pandas DataFrame
@@ -64,7 +64,7 @@ def rvector_to_list_of_tuples(r_vector) -> list[tuple]:
     names = robjects.r.names(r_vector)
     
     # Create a list of tuples with name-value pairs
-    result: list[tuple] = [(names[i], python_list[i]) for i in range(len(python_list))]
+    result: list = [(names[i], python_list[i]) for i in range(len(python_list))]
 
     return result
 
@@ -107,7 +107,7 @@ def convert_spark_2_pandas_ts(spark_df, column_name_time) -> pd.Series:
     :rtype: pd.Series
     """
     spark_df: DataFrame = spark_df.withColumn(column_name_time, col(column_name_time).cast(TimestampType()))
-    rows: list[Row] = spark_df.collect()
+    rows: list = spark_df.collect()
 
     # Convert the list of Row objects to a Pandas DataFrame
     pandas_df = pd.DataFrame(rows, columns=spark_df.columns)
